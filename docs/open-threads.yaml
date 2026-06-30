@@ -1,0 +1,75 @@
+# Open threads for pi-opa-net (resolved at implementation time)
+# Source: ../pi-plugins/flow/findings/safety-net-alternatives-explore/2026-07-01-open-threads.yaml
+# Each decision is the best-call made during TDD implementation.
+# Status: resolved — these are now locked inputs to pi-opa-net v1.
+
+status: resolved
+
+threads:
+  - id: OT1
+    topic: Parser half — raw "git stash list" → structured input for OPA
+    raised_in: turn3
+    status: resolved
+    decision: HYBRID (regex-first, shell-quote AST for hard cases)
+    rationale: |
+      Locked [LD3] scope is bash only. Pure AST (bash-parser) is heavy + brittle
+      on the dev box; pure regex misses redirects/subshells. Hybrid maximizes
+      coverage with zero optional deps for the common case.
+      parse_confidence surfaces which path fired per-decision (schema field).
+    implementation: src/parser/ShellQuoteParser.ts (AST primary via shell-quote)
+                    src/parser/RegexFallbackParser.ts (regex-only fallback)
+                    src/parser/CommandParser.ts (strategy coordinator)
+    confidence_field: full | partial | regex-only | failed
+
+  - id: OT2
+    topic: Fail-mode when OPA is down / unreachable
+    raised_in: turn4
+    status: resolved
+    decision: fail-OPEN (default), configurable to fail-closed
+    rationale: |
+      [LD2] = OPA lazy-loaded on every dev box → cold-start window exists.
+      pi-safety-net@1.0.8 fork (the deployed predecessor) is fail-open by design.
+      fail-open preserves the "never brick the shell" guarantee that is the
+      fork's whole reason for existing. fail-closed is opt-in via env/config
+      for high-safety environments.
+      The `source` field (fail-open | fail-closed) makes whichever mode fires
+      observable in every decision record.
+    implementation: src/config/Config.ts (FAIL_MODE env: open|closed, default open)
+                    src/engine/OpaCliEngine.ts (timeout + failure → fail-mode)
+
+  - id: OT3
+    topic: Bare-default semantics (git stash ≡ git stash push)
+    raised_in: turn1
+    status: resolved
+    decision: handled natively in OPA rego (subcommand == "" + carve-out args)
+    rationale: |
+      OPA trivially expresses "subcommand == ''" — the exact thing cc-safety-net
+      could not (no token to match). Validated in e2e (git stash bare → deny).
+    implementation: policy/safety.rego (builtin:bare-stash-default rule)
+
+  - id: OT4
+    topic: Disposition of cc-safety-net fork (pi-safety-net) now that OPA is chosen
+    raised_in: turn5
+    status: resolved
+    decision: KEEP pi-safety-net as Path A (non-pi-agent net); pi-opa-net is Path B (OPA-backed, pi-first)
+    rationale: |
+      Path A (pi-safety-net) serves Claude Code / non-pi agents where OPA may
+      not be installed. Path B (pi-opa-net) is the OPA-backed engine for pi +
+      any consumer wanting structured --json output. Both coexist; rules are
+      mirrored in policy/safety.rego so they stay in sync.
+      Migration story: pi-safety-net's rules fold INTO this repo's rego policy;
+      the fork retires when OPA is confirmed on all target dev boxes.
+    implementation: documented here; no code coupling between repos
+
+  - id: OT5
+    topic: Which pi extension hooks OPA into the bash tool_call pipeline
+    raised_in: turn5
+    status: resolved
+    decision: NEW extension (pi-opa-net-ext), thin adapter over this lib's CLI
+    rationale: |
+      This repo is the engine + lib (agent-agnostic). The pi extension is a
+      thin tool_call hook that shells out to `pi-opa-net eval` and parses the
+      JSON. Lives in a separate repo (pi-opa-net-ext) per the "packages must
+      live in their own repo" rule. Not in scope for THIS repo's v1.
+    implementation: this repo exposes CLI + programmatic API (src/index.ts);
+                    the pi extension is future work in pi-opa-net-ext repo

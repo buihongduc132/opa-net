@@ -1,0 +1,26 @@
+# Locked decisions for pi-opa-net
+# Inherited from ../pi-plugins/flow/findings/safety-net-alternatives-explore/2026-07-01-locked-decisions.yaml
+# These are immutable inputs. Cite [LDn] to reference.
+
+- id: LD1
+  decision: OPA selected as the policy engine for bash command guarding (not Cedar).
+  status: locked
+
+- id: LD2
+  decision: OPA deployment topology = on every dev box, lazy-loaded (local sidecar/daemon; not remote).
+  status: locked
+
+- id: LD3
+  decision: Scope limited to bash command guarding ONLY. All other OPA policy domains out of scope.
+  status: locked
+
+- id: LD4
+  decision: "--json governs OUTPUT only. INPUT stays OPA/Rego (per turn7 clarification)."
+  status: locked
+
+- id: LD5
+  decision: |
+    Schema v1.0 — decision-output.schema.json. Symmetric (allow+deny emit),
+    agent-agnostic, exit codes 0=allow / 2=deny (backward-compat with Claude
+    Code hook protocol).
+  status: locked

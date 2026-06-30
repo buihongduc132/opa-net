@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://buihongduc132/pi-safety-net/schemas/decision-output.v1.json",
+  "title": "Bash Guard Decision Output (--json mode, v1)",
+  "description": "Programmatic output schema for the OPA-backed bash guard. INPUT stays OPA/Rego; THIS schema governs the OUTPUT wrapper consumed by pi extensions, scripts, and other agents. Symmetric: both allow and deny emit this shape. Exit codes map 0=allow, 2=deny (backward-compat with Claude Code hook protocol).",
+
+  "type": "object",
+  "required": ["schema_version", "decision", "action", "source", "input", "evaluated_at", "decision_id"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Pinned schema version. Bump on breaking change. Consumers MUST validate this before reading other fields."
+    },
+
+    "decision": {
+      "type": "string",
+      "enum": ["allow", "deny"],
+      "description": "Primary verdict. Maps to exit code: allow→0, deny→2."
+    },
+
+    "action": {
+      "type": "string",
+      "enum": ["allow", "block", "prompt_user", "log_only"],
+      "description": "Caller guidance. allow=proceed silently; block=stop with message; prompt_user=ask human (future ask-mode, like pi-control's 5 outcomes); log_only=proceed but record. Today only allow/block are emitted; prompt_user/log_only reserved for v2."
+    },
+
+    "source": {
+      "type": "string",
+      "enum": ["opa", "fail-open", "fail-closed", "cached"],
+      "description": "Where the decision came from. opa=live OPA eval; fail-open=OPA unreachable, defaulted allow (see [OT2]); fail-closed=OPA unreachable, defaulted deny; cached=replay of prior decision for identical input within TTL."
+    },
+
+    "reasons": {
+      "type": "array",
+      "description": "Every fired deny rule contributes one entry. Empty array on allow. NOT collapsed to a single string — preserves rule provenance for audit. Order = rule evaluation order (deterministic).",
+      "items": { "$ref": "#/$defs/Reason" }
+    },
+
+    "input": {
+      "$ref": "#/$defs/EvaluatedInput",
+      "description": "Echo of the normalized command the parser produced (the decide-half input). Lets consumer verify what was actually evaluated vs what they sent."
+    },
+
+    "summary": {
+      "type": "string",
+      "description": "Human-readable one-liner for TUI/logging. e.g. 'BLOCKED: git stash pop (rule: block-git-stash-mutations)'. Optional on allow (may be empty string)."
+    },
+
+    "suggestions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Safe alternatives the user could run instead. e.g. ['git stash list', 'git stash show']. Empty array if none. Powering future 'did you mean?' UX."
+    },
+
+    "metadata": {
+      "$ref": "#/$defs/DecisionMetadata",
+      "description": "Provenance for audit: which rulebook, which OPA version, which policy digest decided this. Enables after-the-fact replay and drift detection."
+    },
+
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of decision. Millisecond precision."
+    },
+
+    "decision_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique ID per decision. Carry through to audit log, hook response, user-facing message — enables end-to-end tracing."
+    },
+
+    "duration_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Wall-clock time from input received to decision emitted. For perf monitoring / OPA cold-start detection (relevant to lazy-load topology [LD2])."
+    }
+  },
+
+  "$defs": {
+    "Reason": {
+      "type": "object",
+      "required": ["rule_id", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "description": "Stable rule identifier. Matches the cc-safety-net rule `name` field (e.g. 'block-git-stash-mutations') OR a synthesized ID for built-in semantic rules (e.g. 'builtin:git-stash-drop'). Lets audits trace decision→rule→source line."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable explanation. Same text as the rule's `reason` field. NOT redacted of secrets here — redaction happens at display layer."
+        },
+        "family": {
+          "type": "string",
+          "enum": ["git", "docker", "rm", "gcloud", "bq", "gh", "glab", "bd", "builtin", "custom"],
+          "description": "Rule family for grouping/filtering. Matches the 6 families in the rego translation (turn6)."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["block", "warn", "info"],
+          "description": "Reserved for v2 tiered outcomes. Today always 'block'. Lets future prompt_user/log_only rules coexist with hard blocks."
+        }
+      }
+    },
+
+    "EvaluatedInput": {
+      "type": "object",
+      "required": ["raw"],
+      "additionalProperties": false,
+      "properties": {
+        "raw": {
+          "type": "string",
+          "description": "Original command string as received. May be redacted of secrets at display layer but stored verbatim in JSON for audit (consumer is trusted)."
+        },
+        "program": {
+          "type": "string",
+          "description": "Normalized program name (lowercase). Empty string if parser could not extract."
+        },
+        "subcommand": {
+          "type": "string",
+          "description": "Normalized subcommand. Empty string if none (the bare-default case [OT3] — `git stash` with no sub)."
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Normalized arg tokens. Empty array if none."
+        },
+        "parse_confidence": {
+          "type": "string",
+          "enum": ["full", "partial", "regex-only", "failed"],
+          "description": "Parser fidelity. full=bash-parser AST; partial=AST with gaps; regex-only=string match fallback ([OT1] common-case path); failed=could not parse, fell back to raw-string matching only."
+        }
+      }
+    },
+
+    "DecisionMetadata": {
+      "type": "object",
+      "required": ["engine", "rulebook_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "type": "string",
+          "const": "opa",
+          "description": "Decision engine identity. Pinned to 'opa' per [LD1]."
+        },
+        "opa_version": {
+          "type": "string",
+          "description": "OPA binary version string (e.g. '1.18.1'). For reproducibility."
+        },
+        "rulebook_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "SHA-256 prefix (12 hex) of the active rego policy bundle. Matches the cc-safety-net rule.lock digest format. Lets audits detect 'decision made under different rules than current'."
+        },
+        "policy_path": {
+          "type": "string",
+          "description": "Filesystem path to the .rego bundle evaluated. For debugging 'which policy fired'."
+        },
+        "hostname": {
+          "type": "string",
+          "description": "Dev box hostname (per [LD2] — every dev box runs its own OPA). For correlating decisions across the fleet."
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Calling agent's session ID if available (pi session, claude session, etc.). Empty string if not provided."
+        }
+      }
+    }
+  },
+
+  "examples": [
+    {
+      "schema_version": "1.0",
+      "decision": "deny",
+      "action": "block",
+      "source": "opa",
+      "reasons": [
+        {
+          "rule_id": "block-git-stash-mutations",
+          "message": "Do not mutate stashes in shared work. Others may be relying on them.",
+          "family": "git",
+          "severity": "block"
+        }
+      ],
+      "input": {
+        "raw": "git stash pop",
+        "program": "git",
+        "subcommand": "stash",
+        "args": ["pop"],
+        "parse_confidence": "full"
+      },
+      "summary": "BLOCKED: git stash pop (rule: block-git-stash-mutations)",
+      "suggestions": ["git stash list", "git stash show"],
+      "metadata": {
+        "engine": "opa",
+        "opa_version": "1.18.1",
+        "rulebook_digest": "dee3746bf7b5",
+        "policy_path": "/home/bhd/.pi/opa/safety.rego",
+        "hostname": "bhd-main",
+        "session_id": "ses_abc123"
+      },
+      "evaluated_at": "2026-07-01T14:23:45.123Z",
+      "decision_id": "7f3a9c2e-1b4d-4e8f-9a2c-5d6e7f8a9b01",
+      "duration_ms": 4.2
+    },
+    {
+      "schema_version": "1.0",
+      "decision": "allow",
+      "action": "allow",
+      "source": "opa",
+      "reasons": [],
+      "input": {
+        "raw": "git stash list",
+        "program": "git",
+        "subcommand": "stash",
+        "args": ["list"],
+        "parse_confidence": "full"
+      },
+      "summary": "",
+      "suggestions": [],
+      "metadata": {
+        "engine": "opa",
+        "opa_version": "1.18.1",
+        "rulebook_digest": "dee3746bf7b5",
+        "policy_path": "/home/bhd/.pi/opa/safety.rego",
+        "hostname": "bhd-main",
+        "session_id": "ses_abc123"
+      },
+      "evaluated_at": "2026-07-01T14:23:46.456Z",
+      "decision_id": "8g4b0d3f-2c5e-5f9a-0b3d-6e7f8a9b0c12",
+      "duration_ms": 3.8
+    },
+    {
+      "schema_version": "1.0",
+      "decision": "deny",
+      "action": "block",
+      "source": "opa",
+      "reasons": [
+        {
+          "rule_id": "builtin:bare-stash-default",
+          "message": "Bare `git stash` defaults to push. Use `git stash list/show` explicitly.",
+          "family": "builtin",
+          "severity": "block"
+        }
+      ],
+      "input": {
+        "raw": "git stash",
+        "program": "git",
+        "subcommand": "",
+        "args": [],
+        "parse_confidence": "full"
+      },
+      "summary": "BLOCKED: bare `git stash` (rule: builtin:bare-stash-default)",
+      "suggestions": ["git stash list", "git stash show", "git stash branch <name>"],
+      "metadata": {
+        "engine": "opa",
+        "opa_version": "1.18.1",
+        "rulebook_digest": "dee3746bf7b5",
+        "policy_path": "/home/bhd/.pi/opa/safety.rego",
+        "hostname": "bhd-main",
+        "session_id": "ses_abc123"
+      },
+      "evaluated_at": "2026-07-01T14:23:47.789Z",
+      "decision_id": "9h5c1e4g-3d6f-6g0a-1c4e-7f8a9b0c1d23",
+      "duration_ms": 4.0
+    },
+    {
+      "schema_version": "1.0",
+      "decision": "allow",
+      "action": "allow",
+      "source": "fail-open",
+      "reasons": [],
+      "input": {
+        "raw": "git push origin main",
+        "program": "git",
+        "subcommand": "push",
+        "args": ["origin", "main"],
+        "parse_confidence": "regex-only"
+      },
+      "summary": "ALLOWED (fail-open: OPA unreachable for 250ms)",
+      "suggestions": [],
+      "metadata": {
+        "engine": "opa",
+        "opa_version": "",
+        "rulebook_digest": "dee3746bf7b5",
+        "policy_path": "/home/bhd/.pi/opa/safety.rego",
+        "hostname": "bhd-main",
+        "session_id": "ses_abc123"
+      },
+      "evaluated_at": "2026-07-01T14:24:01.001Z",
+      "decision_id": "a6d2f5h-4e7g-7h1b-2d5f-8a9b0c1d2e34",
+      "duration_ms": 250.0
+    }
+  ]
+}
