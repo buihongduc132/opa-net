@@ -1,41 +1,49 @@
 {
   "name": "pi-opa-net",
   "version": "0.1.0",
-  "description": "OPA-backed bash command guard with structured --json output (decision-output.v1 schema). Fail-open default, agent-agnostic, exit-code compatible with Claude Code hook protocol.",
+  "description": "OPA-backed bash command guard for the pi ecosystem — structured decision-output.v1 JSON, fail-open default, Claude Code hook protocol compatible. Agent-agnostic engine + CLI.",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "bin": {
     "pi-opa-net": "bin/pi-opa-net.js"
   },
   "files": [
-    "dist",
+    "src",
     "bin",
     "schemas",
-    "policy"
+    "policy",
+    "skills",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "bun run clean && bun build src/index.ts --outdir dist --target bun",
-    "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check --write src tests",
-    "lint:ci": "biome ci src tests",
+    "lint": "biome check --write src tests bin",
+    "lint:ci": "biome ci src tests bin",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "check": "bun run typecheck && bun run lint:ci && bun test --coverage",
-    "prepublishOnly": "bun run build"
+    "smoke": "bun run bin/pi-opa-net.js eval \"git stash pop\" --json",
+    "prepublishOnly": "bun run check"
   },
   "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "pi-library",
     "opa",
     "rego",
     "bash-guard",
     "safety-net",
     "claude-code",
-    "pi",
-    "policy"
+    "policy",
+    "decision-output"
   ],
-  "license": "MIT",
-  "author": "buihongduc132",
+  "pi": {
+    "skills": ["./skills"]
+  },
   "dependencies": {
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -49,5 +57,15 @@
   },
   "engines": {
     "bun": ">=1.1.0"
+  },
+  "license": "MIT",
+  "author": "buihongduc132",
+  "homepage": "https://github.com/buihongduc132/pi-opa-net#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buihongduc132/pi-opa-net.git"
+  },
+  "bugs": {
+    "url": "https://github.com/buihongduc132/pi-opa-net/issues"
   }
 }

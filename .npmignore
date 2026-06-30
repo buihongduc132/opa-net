@@ -1,0 +1,17 @@
+# .npmignore — keep the published tarball lean.
+# package.json `files` allowlist already restricts to src/bin/schemas/policy/skills + docs.
+# This file is a belt-and-suspenders denylist for anything that slips through.
+
+tests/
+coverage/
+dist/
+node_modules/
+.github/
+.git/
+.gitignore
+.env
+.env.*
+*.log
+*.backup.*
+*.bak
+bun.lock

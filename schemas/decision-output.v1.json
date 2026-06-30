@@ -198,8 +198,8 @@
         "engine": "opa",
         "opa_version": "1.18.1",
         "rulebook_digest": "dee3746bf7b5",
-        "policy_path": "/home/bhd/.pi/opa/safety.rego",
-        "hostname": "bhd-main",
+        "policy_path": "/home/agent/.pi/opa/safety.rego",
+        "hostname": "dev-box",
         "session_id": "ses_abc123"
       },
       "evaluated_at": "2026-07-01T14:23:45.123Z",
@@ -225,8 +225,8 @@
         "engine": "opa",
         "opa_version": "1.18.1",
         "rulebook_digest": "dee3746bf7b5",
-        "policy_path": "/home/bhd/.pi/opa/safety.rego",
-        "hostname": "bhd-main",
+        "policy_path": "/home/agent/.pi/opa/safety.rego",
+        "hostname": "dev-box",
         "session_id": "ses_abc123"
       },
       "evaluated_at": "2026-07-01T14:23:46.456Z",
@@ -259,8 +259,8 @@
         "engine": "opa",
         "opa_version": "1.18.1",
         "rulebook_digest": "dee3746bf7b5",
-        "policy_path": "/home/bhd/.pi/opa/safety.rego",
-        "hostname": "bhd-main",
+        "policy_path": "/home/agent/.pi/opa/safety.rego",
+        "hostname": "dev-box",
         "session_id": "ses_abc123"
       },
       "evaluated_at": "2026-07-01T14:23:47.789Z",
@@ -286,8 +286,8 @@
         "engine": "opa",
         "opa_version": "",
         "rulebook_digest": "dee3746bf7b5",
-        "policy_path": "/home/bhd/.pi/opa/safety.rego",
-        "hostname": "bhd-main",
+        "policy_path": "/home/agent/.pi/opa/safety.rego",
+        "hostname": "dev-box",
         "session_id": "ses_abc123"
       },
       "evaluated_at": "2026-07-01T14:24:01.001Z",

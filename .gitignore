@@ -3,4 +3,8 @@ dist/
 node_modules/
 *.log
 .DS_Store
-bun.lock
+.env
+.env.*
+!.env.example
+.gitnexusignore
+.gitnexus/

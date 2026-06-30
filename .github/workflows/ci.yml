@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install OPA
+        run: |
+          curl -L -o opa.zip "https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static.zip"
+          unzip opa.zip -d "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        if: runner.os == 'Linux'
+      - name: Install OPA (macOS)
+        run: |
+          curl -L -o opa.zip "https://openpolicyagent.org/downloads/latest/opa_darwin_amd64_static.zip"
+          unzip opa.zip -d "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        if: runner.os == 'macOS'
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint:ci
+      - run: bun run test:coverage
+      - run: bun run smoke
+
+  package-dry-run:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: npm pack dry-run
+        run: |
+          # Use npm to verify the published tarball contents
+          npm pack --dry-run 2>&1 | tee pack.log
+          # Assert no source maps, node_modules, or .git leak into the tarball
+          ! grep -E 'node_modules/|\.git/|\.map$' pack.log
+
+  publish:
+    needs: package-dry-run
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - name: Check version bump
+        run: |
+          CURRENT=$(npm view pi-opa-net version 2>/dev/null || echo "0.0.0")
+          LOCAL=$(node -p "require('./package.json').version")
+          echo "npm current=$CURRENT local=$LOCAL"
+          [ "$CURRENT" != "$LOCAL" ]
+      - run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

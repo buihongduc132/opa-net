@@ -2,7 +2,9 @@ import { describe, expect, it } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { defaultPolicyPath, runCli } from '../../../src/cli/run.ts';
 
-const OPA = process.env.HOME ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.1/opa` : 'opa';
+const OPA = process.env.HOME
+  ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.1/opa`
+  : 'opa';
 const opaAvailable = existsSync(OPA);
 
 describe('defaultPolicyPath', () => {
@@ -23,7 +25,11 @@ describe('runCli — empty command returns exit 0 + empty stdout', () => {
 
 describe.skipIf(!opaAvailable)('runCli — programmatic API (live OPA)', () => {
   it('deny path returns exit 2 + schema JSON', async () => {
-    const r = await runCli({ command: 'git stash pop', mode: 'json', policyPath: defaultPolicyPath() });
+    const r = await runCli({
+      command: 'git stash pop',
+      mode: 'json',
+      policyPath: defaultPolicyPath(),
+    });
     expect(r.exitCode).toBe(2);
     const rec = JSON.parse(r.stdout);
     expect(rec.decision).toBe('deny');
@@ -31,7 +37,11 @@ describe.skipIf(!opaAvailable)('runCli — programmatic API (live OPA)', () => {
   });
 
   it('claude-code allow path returns exit 0 + empty stdout', async () => {
-    const r = await runCli({ command: 'git stash list', mode: 'claude-code', policyPath: defaultPolicyPath() });
+    const r = await runCli({
+      command: 'git stash list',
+      mode: 'claude-code',
+      policyPath: defaultPolicyPath(),
+    });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toBe('');
   });

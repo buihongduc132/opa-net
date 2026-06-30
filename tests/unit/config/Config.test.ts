@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { configFromEnv, resolveOpaBinary, type EngineConfig } from '../../../src/config/Config.ts';
+import { type EngineConfig, configFromEnv, resolveOpaBinary } from '../../../src/config/Config.ts';
 
 describe('resolveOpaBinary', () => {
   it('returns explicit path when given', () => {

@@ -14,11 +14,11 @@ const FIXED_NOW = new Date('2026-07-01T14:23:45.123Z');
 const FIXED_UUID = '7f3a9c2e-1b4d-4e8f-9a2c-5d6e7f8a9b01';
 
 const cfg: EngineConfig = {
-  policyPath: '/home/bhd/.pi/opa/safety.rego',
+  policyPath: '/home/agent/.pi/opa/safety.rego',
   failMode: 'open',
   timeoutMs: 250,
   cacheTtlMs: 0,
-  hostname: 'bhd-main',
+  hostname: 'dev-box',
   sessionId: 'ses_abc123',
 };
 
@@ -87,7 +87,7 @@ describe('DecisionBuilder — deny', () => {
     const out = builder.build(parsed('git stash pop', 'git', 'stash', ['pop']), denyEngine);
     expect(out.metadata.engine).toBe('opa');
     expect(out.metadata.rulebook_digest).toBe('dee3746bf7b5');
-    expect(out.metadata.hostname).toBe('bhd-main');
+    expect(out.metadata.hostname).toBe('dev-box');
     expect(out.metadata.session_id).toBe('ses_abc123');
     expect(out.metadata.opa_version).toBe('1.18.1');
   });

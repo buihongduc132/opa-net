@@ -168,7 +168,7 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
     expect(r.record!.decision).toBe('deny');
   });
 
-  it('rule coverage >= 40% of catalog (>=14 distinct rules fire)', () => {
+  it('rule coverage >= 40% of catalog (>=15 distinct rules fire)', () => {
     const fired = new Set<string>();
     for (const c of DENY_CASES) {
       const r = runCli(c.command, 'json');
@@ -177,7 +177,7 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
     }
     // 37 catalog rules → 40% = 15
     expect(fired.size).toBeGreaterThanOrEqual(15);
-  });
+  }, 30000); // runs ~20 CLI subprocesses serially; needs headroom over the 5s default
 
   it('fail-open path: invalid policy path still resolves (source != crash)', () => {
     // Use the binary but point at a nonexistent policy → rego load fails → fail-open.
