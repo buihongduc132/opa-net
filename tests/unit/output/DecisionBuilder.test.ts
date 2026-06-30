@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import type { EngineConfig } from '../../../src/config/Config.ts';
 import type { EngineDecision } from '../../../src/engine/types.ts';
-import { DecisionBuilder } from '../../../src/output/DecisionBuilder.ts';
-import { OutputFormatter, isValidDecision, validateDecision } from '../../../src/output/OutputFormatter.ts';
+import { DecisionBuilder, type DecisionOutput } from '../../../src/output/DecisionBuilder.ts';
+import {
+  OutputFormatter,
+  isValidDecision,
+  validateDecision,
+} from '../../../src/output/OutputFormatter.ts';
 import type { ParsedCommand } from '../../../src/parser/types.ts';
 import { RULES, RuleRegistry } from '../../../src/rules/index.ts';
 
@@ -226,7 +230,9 @@ describe('isValidDecision', () => {
     const out = builder.build(parsed('git stash pop', 'git', 'stash', ['pop']), {
       decision: 'deny',
       source: 'opa',
-      reasons: [{ message: 'Do not mutate stashes in shared work. Others may be relying on them.' }],
+      reasons: [
+        { message: 'Do not mutate stashes in shared work. Others may be relying on them.' },
+      ],
       opaVersion: '1.18.1',
       durationMs: 4.2,
     });
@@ -235,12 +241,12 @@ describe('isValidDecision', () => {
 
   it('returns false for a record missing required fields', () => {
     // intentionally malformed — missing schema_version, wrong types
-    const bad = { decision: 'maybe' } as unknown as import('../../../src/output/DecisionBuilder.ts').DecisionOutput;
+    const bad = { decision: 'maybe' } as unknown as DecisionOutput;
     expect(isValidDecision(bad)).toBe(false);
   });
 
   it('validateDecision throws on invalid record', () => {
-    const bad = { decision: 'maybe' } as unknown as import('../../../src/output/DecisionBuilder.ts').DecisionOutput;
+    const bad = { decision: 'maybe' } as unknown as DecisionOutput;
     expect(() => validateDecision(bad)).toThrow();
   });
 });

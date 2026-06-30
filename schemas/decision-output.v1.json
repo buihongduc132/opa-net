@@ -230,7 +230,7 @@
         "session_id": "ses_abc123"
       },
       "evaluated_at": "2026-07-01T14:23:46.456Z",
-      "decision_id": "8g4b0d3f-2c5e-5f9a-0b3d-6e7f8a9b0c12",
+      "decision_id": "f58c8a4b-f478-456e-b762-6fb710a3380f",
       "duration_ms": 3.8
     },
     {
@@ -264,7 +264,7 @@
         "session_id": "ses_abc123"
       },
       "evaluated_at": "2026-07-01T14:23:47.789Z",
-      "decision_id": "9h5c1e4g-3d6f-6g0a-1c4e-7f8a9b0c1d23",
+      "decision_id": "38708bfc-dd9b-454e-9248-d071e3354fde",
       "duration_ms": 4.0
     },
     {
@@ -291,7 +291,7 @@
         "session_id": "ses_abc123"
       },
       "evaluated_at": "2026-07-01T14:24:01.001Z",
-      "decision_id": "a6d2f5h-4e7g-7h1b-2d5f-8a9b0c1d2e34",
+      "decision_id": "a407558c-0d12-4bed-a40b-4bd0546c3c1a",
       "duration_ms": 250.0
     }
   ]
