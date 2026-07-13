@@ -1,0 +1,721 @@
+{
+  "rulebook_version": 1,
+  "name": "user-rules",
+  "version": "1.0.0",
+  "description": "User-scope CC Safety Net rules. Deployed to ~/.cc-safety-net/rules/user-rules/rulebook.json.",
+  "author": "vendor-omo",
+  "allowed_commands": [
+    "git",
+    "bd",
+    "docker",
+    "rm",
+    "gcloud",
+    "bq",
+    "gh",
+    "glab",
+    "tmux",
+    "pkill",
+    "killall"
+  ],
+  "rules": [
+    {
+      "name": "block-git-commit-am",
+      "command": "git",
+      "subcommand": "commit",
+      "block_args": [
+        "-am",
+        "-a"
+      ],
+      "reason": "git commit -am stages ALL tracked modifications indiscriminately. Use git add <file> then git commit -m instead."
+    },
+    {
+      "name": "block-git-rebase-continue",
+      "command": "git",
+      "subcommand": "rebase",
+      "block_args": [
+        "--continue",
+        "--skip",
+        "--abort"
+      ],
+      "reason": "git rebase --continue/--skip/--abort should be run intentionally by the user. Auto-continuing rebases can commit unintended changes."
+    },
+    {
+      "name": "block-bd-notes-flag",
+      "command": "bd",
+      "block_args": [
+        "--notes"
+      ],
+      "reason": "Use --append-notes instead to preserve existing notes and maintain audit trail."
+    },
+    {
+      "name": "block-stop-docker-entirely",
+      "command": "docker",
+      "subcommand": "stop",
+      "block_args": [
+        "stop"
+      ],
+      "reason": "Direct container stop is blocked to protect service availability. Use orchestrated workflows or the API to manage service termination."
+    },
+    {
+      "name": "block-kill-docker-entirely",
+      "command": "docker",
+      "subcommand": "kill",
+      "block_args": [
+        "kill"
+      ],
+      "reason": "Direct container kill is blocked. Abrupt termination causes data corruption in LiteLLM/Postgres. Use the API for graceful shutdown."
+    },
+    {
+      "name": "block-rm-docker-entirely",
+      "command": "docker",
+      "subcommand": "rm",
+      "block_args": [
+        "rm"
+      ],
+      "reason": "Direct container removal is blocked. Re-deploying manually bypasses the infrastructure-as-code state. Use Nomad/Ansible for removal."
+    },
+    {
+      "name": "block-restart-docker-entirely",
+      "command": "docker",
+      "subcommand": "restart",
+      "block_args": [
+        "restart"
+      ],
+      "reason": "NEVER restart containers directly. This bypasses service orchestration (Nomad/Consul) and can lead to inconsistent state or data loss. Use the API or Nomad to manage service lifecycle."
+    },
+    {
+      "name": "block-exec-docker-entirely",
+      "command": "docker",
+      "subcommand": "exec",
+      "block_args": [
+        "exec"
+      ],
+      "reason": "Direct exec into containers is blocked for security and integrity. Container states must be managed via configuration, not manual shell access. Use the API for troubleshooting."
+    },
+    {
+      "name": "block-update-docker-entirely",
+      "command": "docker",
+      "subcommand": "update",
+      "block_args": [
+        "update"
+      ],
+      "reason": "Direct resource updates are blocked. Use Nomad job specs to adjust CPU/Memory limits."
+    },
+    {
+      "name": "block-rename-docker-entirely",
+      "command": "docker",
+      "subcommand": "rename",
+      "block_args": [
+        "rename"
+      ],
+      "reason": "Container renaming is blocked to prevent breaking service discovery and monitoring tools."
+    },
+    {
+      "name": "block-volume-rm-docker-entirely",
+      "command": "docker",
+      "subcommand": "volume",
+      "block_args": [
+        "rm",
+        "prune"
+      ],
+      "reason": "Direct volume removal is strictly blocked to prevent permanent data loss. Volumes must be managed via Nomad/Ansible job specs."
+    },
+    {
+      "name": "block-volume-create-docker-entirely",
+      "command": "docker",
+      "subcommand": "volume",
+      "block_args": [
+        "create"
+      ],
+      "reason": "Manual volume creation is blocked to maintain infrastructure-as-code consistency. Define volumes in mise tasks or Nomad jobs."
+    },
+    {
+      "name": "block-compose-down-litellm-services",
+      "command": "docker",
+      "subcommand": "compose",
+      "block_args": [
+        "down",
+        "--project-name=litellm",
+        "--project-name=litellm-local",
+        "--project-name=omniroute"
+      ],
+      "reason": "NEVER bring down litellm/litellm-local/omniroute via docker compose down. Removes containers, networks, and potentially volumes. Use the API to manage services instead."
+    },
+    {
+      "name": "block-compose-rm-litellm-services",
+      "command": "docker",
+      "subcommand": "compose",
+      "block_args": [
+        "rm",
+        "--project-name=litellm",
+        "--project-name=litellm-local",
+        "--project-name=omniroute"
+      ],
+      "reason": "NEVER remove litellm/litellm-local/omniroute containers via docker compose rm. Use the API to manage services instead."
+    },
+    {
+      "name": "block-compose-stop-litellm-services",
+      "command": "docker",
+      "subcommand": "compose",
+      "block_args": [
+        "--target=litellm",
+        "--target=litellm-local",
+        "--target=omniroute"
+      ],
+      "reason": "NEVER stop litellm/litellm-local/omniroute via docker compose. Use the API to manage them instead."
+    },
+    {
+      "name": "block-git-stash-mutations",
+      "command": "git",
+      "subcommand": "stash",
+      "block_args": [
+        "push",
+        "pop",
+        "drop",
+        "clear",
+        "store",
+        "create",
+        "save"
+      ],
+      "reason": "Do not mutate stashes in shared work. Others may be working in this directory. Read-only stash operations (list, show, branch, log) are allowed. If action is truly needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-reset-hard",
+      "command": "git",
+      "subcommand": "reset",
+      "block_args": [
+        "--hard"
+      ],
+      "reason": "Hard reset discards local work and can remove others' changes. Use safer targeted operations. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-reset-mixed",
+      "command": "git",
+      "subcommand": "reset",
+      "block_args": [
+        "--mixed"
+      ],
+      "reason": "Mixed reset rewrites index state and can disrupt shared dirty work. Use explicit file-level actions. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-reset-merge",
+      "command": "git",
+      "subcommand": "reset",
+      "block_args": [
+        "--merge",
+        "--keep"
+      ],
+      "reason": "Reset modes can unexpectedly alter local changes in shared directories. Prefer explicit safe steps. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-clean-force",
+      "command": "git",
+      "subcommand": "clean",
+      "block_args": [
+        "-f",
+        "-fd",
+        "-fdx",
+        "-xdf",
+        "--force",
+        "-x",
+        "-d"
+      ],
+      "reason": "git clean can permanently remove untracked files from collaborators. Use targeted cleanup only. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-checkout-discard",
+      "command": "git",
+      "subcommand": "checkout",
+      "block_args": [
+        "--"
+      ],
+      "reason": "checkout -- discards local file changes and may delete others' edits. Use explicit review-first workflows. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-restore-worktree",
+      "command": "git",
+      "subcommand": "restore",
+      "block_args": [
+        "--worktree",
+        "--source=HEAD"
+      ],
+      "reason": "git restore can discard tracked modifications in shared worktrees. Prefer explicit file-safe steps. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-add-all",
+      "command": "git",
+      "subcommand": "add",
+      "block_args": [
+        "-A",
+        "--all",
+        "-a"
+      ],
+      "reason": "git add -A / -a stages ALL changed files indiscriminately. Always use 'git add <specific-file>' or 'git add <directory>/' to stage intentionally. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-add-dot",
+      "command": "git",
+      "subcommand": "add",
+      "block_args": [
+        "."
+      ],
+      "reason": "git add . stages ALL files in the current directory recursively. Always use 'git add <specific-file>' or 'git add <directory>/' to stage intentionally. If needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-commit-no-verify",
+      "command": "git",
+      "subcommand": "commit",
+      "block_args": [
+        "--no-verify",
+        "-n"
+      ],
+      "reason": "ALWAYS run pre-commit hooks. Bypassing hooks risks committing broken or unvalidated code. If action is truly needed, provide a single-line command humans can copy and run as-is."
+    },
+    {
+      "name": "block-git-checkout-branch-reset",
+      "command": "git",
+      "subcommand": "checkout",
+      "block_args": [
+        "-B"
+      ],
+      "reason": "git checkout -B force-resets branch refs and can temporarily orphan large local histories. Use explicit merge workflows instead."
+    },
+    {
+      "name": "block-git-switch-force-create",
+      "command": "git",
+      "subcommand": "switch",
+      "block_args": [
+        "-C"
+      ],
+      "reason": "git switch -C force-resets branch refs and can rewrite the current branch unexpectedly. Use explicit safe branch operations instead."
+    },
+    {
+      "name": "block-git-branch-force-move",
+      "command": "git",
+      "subcommand": "branch",
+      "block_args": [
+        "-f",
+        "-M",
+        "-C"
+      ],
+      "reason": "Forced branch moves or renames can rewrite refs and hide work unexpectedly. Use review-first branch operations instead."
+    },
+    {
+      "name": "block-git-rebase-entirely",
+      "command": "git",
+      "subcommand": "rebase",
+      "block_args": [
+        "rebase"
+      ],
+      "reason": "Rebase rewrites commit history and is blocked in this environment. Merge instead of rebasing shared or valuable branch histories."
+    },
+    {
+      "name": "allow-rm-bd-sub-skills",
+      "command": "rm",
+      "block_args": [
+        "bd-workflow",
+        "bd-planning",
+        "bd-troubleshoot",
+        "bd-config",
+        "bd-workflow-init",
+        "bd-formula-workflow",
+        "bd-worktree",
+        "bd-as-doc"
+      ],
+      "reason": "Allow deleting deprecated bd sub-skill directories. User explicitly requested consolidation."
+    },
+    {
+      "name": "allow-rm-beads-subdirs",
+      "command": "rm",
+      "block_args": [
+        "adr",
+        "references",
+        "resources"
+      ],
+      "reason": "Allow removing symlink subdirs in beads/ skill. User explicitly requested beads as standalone."
+    },
+    {
+      "name": "block-gcloud-destructive-verbs",
+      "command": "gcloud",
+      "block_args": [
+        "create",
+        "delete",
+        "update",
+        "replace",
+        "patch",
+        "deploy",
+        "undelete",
+        "restore",
+        "restore-backup",
+        "clone",
+        "import",
+        "export",
+        "execute",
+        "failover",
+        "switchover"
+      ],
+      "reason": "Mutation-capable gcloud operations are blocked by default to protect cloud resources, especially Cloud Run, Cloud SQL, and other serverless services."
+    },
+    {
+      "name": "block-bq-destructive-verbs",
+      "command": "bq",
+      "block_args": [
+        "mk",
+        "rm",
+        "update",
+        "load",
+        "insert",
+        "truncate",
+        "set-iam-policy",
+        "add-iam-policy-binding",
+        "remove-iam-policy-binding"
+      ],
+      "reason": "BigQuery mutation commands are blocked by default to protect datasets, tables, jobs, and IAM configuration."
+    },
+    {
+      "name": "block-gh-repo-delete-or-archive",
+      "command": "gh",
+      "subcommand": "repo",
+      "block_args": [
+        "delete",
+        "archive"
+      ],
+      "reason": "Destructive GitHub repository lifecycle actions are blocked by default."
+    },
+    {
+      "name": "block-gh-public-repo-create",
+      "command": "gh",
+      "subcommand": "repo",
+      "block_args": [
+        "--public"
+      ],
+      "reason": "Public GitHub repository creation is blocked by default. Create repos as private/internal only unless explicitly approved by a human."
+    },
+    {
+      "name": "block-gh-visibility-change",
+      "command": "gh",
+      "subcommand": "repo",
+      "block_args": [
+        "--visibility"
+      ],
+      "reason": "GitHub repository visibility changes are blocked by default to prevent accidental public exposure."
+    },
+    {
+      "name": "block-glab-repo-delete-or-archive",
+      "command": "glab",
+      "subcommand": "repo",
+      "block_args": [
+        "delete",
+        "archive"
+      ],
+      "reason": "Destructive GitLab repository lifecycle actions are blocked by default."
+    },
+    {
+      "name": "block-glab-public-repo-create",
+      "command": "glab",
+      "subcommand": "repo",
+      "block_args": [
+        "--public"
+      ],
+      "reason": "Public GitLab repository creation is blocked by default. Create repos as private/internal only unless explicitly approved by a human."
+    },
+    {
+      "name": "block-tmux-kill-server",
+      "command": "tmux",
+      "subcommand": "kill-server",
+      "block_args": [
+        "kill-server"
+      ],
+      "reason": "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves."
+    },
+    {
+      "name": "block-tmux-kill-session",
+      "command": "tmux",
+      "subcommand": "kill-session",
+      "block_args": [
+        "kill-session"
+      ],
+      "reason": "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves."
+    },
+    {
+      "name": "block-pkill-tmux-wezterm",
+      "command": "pkill",
+      "block_args": [
+        "tmux",
+        "wezterm",
+        "wezterm-mux-server"
+      ],
+      "reason": "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves."
+    },
+    {
+      "name": "block-killall-tmux-wezterm",
+      "command": "killall",
+      "block_args": [
+        "tmux",
+        "wezterm",
+        "wezterm-mux-server"
+      ],
+      "reason": "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves."
+    }
+  ],
+  "tests": [
+    {
+      "command": "git commit -am 'msg'",
+      "expect": "blocked",
+      "rule": "block-git-commit-am"
+    },
+    {
+      "command": "docker stop mycontainer",
+      "expect": "blocked",
+      "rule": "block-stop-docker-entirely"
+    },
+    {
+      "command": "docker kill mycontainer",
+      "expect": "blocked",
+      "rule": "block-kill-docker-entirely"
+    },
+    {
+      "command": "docker rm mycontainer",
+      "expect": "blocked",
+      "rule": "block-rm-docker-entirely"
+    },
+    {
+      "command": "docker restart mycontainer",
+      "expect": "blocked",
+      "rule": "block-restart-docker-entirely"
+    },
+    {
+      "command": "docker exec mycontainer ls",
+      "expect": "blocked",
+      "rule": "block-exec-docker-entirely"
+    },
+    {
+      "command": "docker update mycontainer",
+      "expect": "blocked",
+      "rule": "block-update-docker-entirely"
+    },
+    {
+      "command": "docker rename old new",
+      "expect": "blocked",
+      "rule": "block-rename-docker-entirely"
+    },
+    {
+      "command": "docker volume rm myvol",
+      "expect": "blocked",
+      "rule": "block-volume-rm-docker-entirely"
+    },
+    {
+      "command": "git stash push",
+      "expect": "blocked",
+      "rule": "block-git-stash-mutations"
+    },
+    {
+      "command": "git reset --hard",
+      "expect": "blocked",
+      "rule": "block-git-reset-hard"
+    },
+    {
+      "command": "git clean -f",
+      "expect": "blocked",
+      "rule": "block-git-clean-force"
+    },
+    {
+      "command": "git add .",
+      "expect": "blocked",
+      "rule": "block-git-add-dot"
+    },
+    {
+      "command": "git rebase main",
+      "expect": "blocked",
+      "rule": "block-git-rebase-entirely"
+    },
+    {
+      "command": "gh repo delete owner/repo",
+      "expect": "blocked",
+      "rule": "block-gh-repo-delete-or-archive"
+    },
+    {
+      "command": "echo hello",
+      "expect": "allowed"
+    },
+    {
+      "command": "git status",
+      "expect": "allowed"
+    },
+    {
+      "command": "docker ps",
+      "expect": "allowed"
+    },
+    {
+      "command": "git rebase --continue",
+      "expect": "blocked",
+      "rule": "block-git-rebase-continue"
+    },
+    {
+      "command": "bd --notes",
+      "expect": "blocked",
+      "rule": "block-bd-notes-flag"
+    },
+    {
+      "command": "docker volume create",
+      "expect": "blocked",
+      "rule": "block-volume-create-docker-entirely"
+    },
+    {
+      "command": "docker compose down",
+      "expect": "blocked",
+      "rule": "block-compose-down-litellm-services"
+    },
+    {
+      "command": "docker compose rm",
+      "expect": "blocked",
+      "rule": "block-compose-rm-litellm-services"
+    },
+    {
+      "command": "docker compose --target=litellm",
+      "expect": "blocked",
+      "rule": "block-compose-stop-litellm-services"
+    },
+    {
+      "command": "git reset --mixed",
+      "expect": "blocked",
+      "rule": "block-git-reset-mixed"
+    },
+    {
+      "command": "git reset --merge",
+      "expect": "blocked",
+      "rule": "block-git-reset-merge"
+    },
+    {
+      "command": "git checkout --",
+      "expect": "blocked",
+      "rule": "block-git-checkout-discard"
+    },
+    {
+      "command": "git restore --worktree",
+      "expect": "blocked",
+      "rule": "block-git-restore-worktree"
+    },
+    {
+      "command": "git add -A",
+      "expect": "blocked",
+      "rule": "block-git-add-all"
+    },
+    {
+      "command": "git commit --no-verify",
+      "expect": "blocked",
+      "rule": "block-git-commit-no-verify"
+    },
+    {
+      "command": "git checkout -B",
+      "expect": "blocked",
+      "rule": "block-git-checkout-branch-reset"
+    },
+    {
+      "command": "git switch -C",
+      "expect": "blocked",
+      "rule": "block-git-switch-force-create"
+    },
+    {
+      "command": "git branch -f",
+      "expect": "blocked",
+      "rule": "block-git-branch-force-move"
+    },
+    {
+      "command": "rm bd-workflow",
+      "expect": "blocked",
+      "rule": "allow-rm-bd-sub-skills"
+    },
+    {
+      "command": "rm adr",
+      "expect": "blocked",
+      "rule": "allow-rm-beads-subdirs"
+    },
+    {
+      "command": "gcloud create",
+      "expect": "blocked",
+      "rule": "block-gcloud-destructive-verbs"
+    },
+    {
+      "command": "bq mk",
+      "expect": "blocked",
+      "rule": "block-bq-destructive-verbs"
+    },
+    {
+      "command": "gh repo --public",
+      "expect": "blocked",
+      "rule": "block-gh-public-repo-create"
+    },
+    {
+      "command": "gh repo --visibility",
+      "expect": "blocked",
+      "rule": "block-gh-visibility-change"
+    },
+    {
+      "command": "glab repo delete",
+      "expect": "blocked",
+      "rule": "block-glab-repo-delete-or-archive"
+    },
+    {
+      "command": "glab repo --public",
+      "expect": "blocked",
+      "rule": "block-glab-public-repo-create"
+    },
+    {
+      "command": "tmux kill-server",
+      "expect": "blocked",
+      "rule": "block-tmux-kill-server"
+    },
+    {
+      "command": "tmux kill-session -t foo",
+      "expect": "blocked",
+      "rule": "block-tmux-kill-session"
+    },
+    {
+      "command": "tmux kill-session -a",
+      "expect": "blocked",
+      "rule": "block-tmux-kill-session"
+    },
+    {
+      "command": "tmux ls",
+      "expect": "allowed"
+    },
+    {
+      "command": "tmux attach -t work",
+      "expect": "allowed"
+    },
+    {
+      "command": "pkill tmux",
+      "expect": "blocked",
+      "rule": "block-pkill-tmux-wezterm"
+    },
+    {
+      "command": "pkill -9 wezterm",
+      "expect": "blocked",
+      "rule": "block-pkill-tmux-wezterm"
+    },
+    {
+      "command": "pkill -f wezterm-mux-server",
+      "expect": "blocked",
+      "rule": "block-pkill-tmux-wezterm"
+    },
+    {
+      "command": "pkill firefox",
+      "expect": "allowed"
+    },
+    {
+      "command": "killall tmux",
+      "expect": "blocked",
+      "rule": "block-killall-tmux-wezterm"
+    },
+    {
+      "command": "killall wezterm",
+      "expect": "blocked",
+      "rule": "block-killall-tmux-wezterm"
+    },
+    {
+      "command": "killall vim",
+      "expect": "allowed"
+    }
+  ]
+}

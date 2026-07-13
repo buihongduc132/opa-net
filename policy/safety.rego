@@ -357,6 +357,42 @@ deny[msg] if {
 }
 
 # ──────────────────────────────────────────────────────────────────
+# GROUP G — tmux / pkill / killall session protection
+# (cc-safety-net parity: block-tmux-kill-server, block-tmux-kill-session,
+#  block-pkill-tmux-wezterm, block-killall-tmux-wezterm)
+#
+# The pi-opa-net parser treats tmux/pkill/killall as non-subcommand programs,
+# so the kill verb lands in input.args. Messages are copied verbatim from the
+# canonical rulebook reason field.
+# ──────────────────────────────────────────────────────────────────
+
+session_kill_targets := ["tmux", "wezterm", "wezterm-mux-server"]
+
+deny[msg] if {
+    input.program == "tmux"
+    has_any_arg(input.args, ["kill-server"])
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+deny[msg] if {
+    input.program == "tmux"
+    has_any_arg(input.args, ["kill-session"])
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+deny[msg] if {
+    input.program == "pkill"
+    has_any_arg(input.args, session_kill_targets)
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+deny[msg] if {
+    input.program == "killall"
+    has_any_arg(input.args, session_kill_targets)
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+# ──────────────────────────────────────────────────────────────────
 # USAGE
 # ──────────────────────────────────────────────────────────────────
 # After your parser normalizes a raw command into the input struct:

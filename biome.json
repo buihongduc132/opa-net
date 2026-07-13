@@ -17,7 +17,7 @@
   "javascript": {
     "formatter": { "quoteStyle": "single", "semicolons": "always" }
   },
-  "files": { "ignore": ["dist", "node_modules"] },
+  "files": { "ignore": ["dist", "node_modules", "tests/fixtures"] },
   "overrides": [
     {
       "include": ["tests/**/*.ts"],
