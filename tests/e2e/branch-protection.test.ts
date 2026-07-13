@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { makeTempGitRepo, makeTempNonRepoDir } from '../fixtures/gitFixture.ts';
+import { git, makeTempGitRepo, makeTempNonRepoDir } from '../fixtures/gitFixture.ts';
 
 /**
  * E2E for the conditional-branch-gate feature: full pipeline
@@ -118,6 +118,21 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
     const repo = makeTempGitRepo('main');
     try {
       const r = runInRepo('git checkout main', repo.dir);
+      expect(r.exitCode).toBe(0);
+      const rec = r.record!;
+      expect(rec.decision).toBe('allow');
+      expect(branchProtectionReasons(rec).length).toBe(0);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  it('checkout a full SHA from main → ALLOW (not a branch switch)', () => {
+    const repo = makeTempGitRepo('main');
+    try {
+      const sha = git(repo.dir, ['rev-parse', 'HEAD']).trim();
+      expect(sha).toMatch(/^[0-9a-f]{40}$/);
+      const r = runInRepo(`git checkout ${sha}`, repo.dir);
       expect(r.exitCode).toBe(0);
       const rec = r.record!;
       expect(rec.decision).toBe('allow');

@@ -209,13 +209,24 @@ deny[msg] if {
 
 deny[msg] if {
     input.program == "git"
-    input.subcommand in {"checkout", "switch"}
+    input.subcommand == "checkout"
     input.signals.git.available
     input.signals.git.current_branch != null
     input.signals.git.target_branch != null
     input.signals.git.target_branch != input.signals.git.current_branch
     input.signals.git.current_branch in data.config.protected_branches
-    msg := sprintf("branch-protection: %s off protected branch %s", [input.subcommand, input.signals.git.current_branch])
+    msg := "branch-protection: checkout-off-protected"
+}
+
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "switch"
+    input.signals.git.available
+    input.signals.git.current_branch != null
+    input.signals.git.target_branch != null
+    input.signals.git.target_branch != input.signals.git.current_branch
+    input.signals.git.current_branch in data.config.protected_branches
+    msg := "branch-protection: switch-off-protected"
 }
 
 # ──────────────────────────────────────────────────────────────────

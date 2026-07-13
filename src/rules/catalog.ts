@@ -100,6 +100,18 @@ export const RULES: readonly RuleMeta[] = [
     family: 'git',
     message: 'git rebase --continue/--skip/--abort should be run only with explicit approval.',
   },
+  {
+    ruleId: 'branch-protection:checkout-off-protected',
+    family: 'git',
+    message: 'branch-protection: checkout-off-protected',
+    suggestions: ['git checkout <same-branch>', 'git switch <allowed-branch>'],
+  },
+  {
+    ruleId: 'branch-protection:switch-off-protected',
+    family: 'git',
+    message: 'branch-protection: switch-off-protected',
+    suggestions: ['git switch <same-branch>', 'git checkout <allowed-branch>'],
+  },
   // ── GROUP B: docker subcommands ──
   {
     ruleId: 'block-docker-stop',

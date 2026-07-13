@@ -9,13 +9,13 @@ import { parseGitTargetBranch } from '../../../src/signals/GitSignals.ts';
  * (flags like -b/-, --track, or no positional arg) it returns null so the
  * branch-protection rule fails open.
  *
- * Decision (documented in proposal D3): the parser is branch-name-agnostic.
- * For `git checkout abc1234` it returns the bare token 'abc1234' — the parser
- * cannot tell a commit from a short branch name. The branch-protection rule
- * in Rego fires only when target_branch is non-null AND differs from
- * current_branch; for a detached-HEAD checkout the practical effect is
- * current_branch becomes null (HEAD detaches), so the rule won't fire.
- * The test asserts parseGitTargetBranch returns the bare token here.
+ * Decision (documented in proposal D3): the parser is branch-name-agnostic
+ * for non-hex tokens. BUT for commit-ish tokens (4–40 hex chars) it returns
+ * null — a conservative fail-open. We cannot distinguish a commit hash from
+ * an all-hex branch name at parse time (no git round-trip), and signals are
+ * collected at DECISION time so current_branch is still the protected branch;
+ * treating a commit-ish token as a branch would produce a false deny on
+ * `git checkout <sha>` from a protected branch. See verifier fix.
  */
 
 describe('parseGitTargetBranch', () => {
@@ -35,9 +35,23 @@ describe('parseGitTargetBranch', () => {
     expect(parseGitTargetBranch('checkout', ['-'])).toBeNull();
   });
 
-  it('checkout <commit-ish> → bare token (rule decides branch-likeness)', () => {
-    // See header comment: parser returns the token; Rego decides whether to fire.
-    expect(parseGitTargetBranch('checkout', ['abc1234'])).toBe('abc1234');
+  it('checkout <commit-ish> → null (conservative fail-open; cannot tell commit from hex branch)', () => {
+    // See header comment: a 4–40 hex-char token is ambiguous between a commit
+    // hash and an all-hex branch name. Because signals are collected at
+    // decision time (current_branch still = the protected branch), treating
+    // such a token as a branch would falsely DENY `git checkout <sha>`. We
+    // fail open by returning null.
+    expect(parseGitTargetBranch('checkout', ['abc1234'])).toBeNull();
+  });
+
+  it('checkout <full 40-char SHA> → null (commit-ish)', () => {
+    expect(
+      parseGitTargetBranch('checkout', ['0123456789abcdef0123456789abcdef01234567']),
+    ).toBeNull();
+  });
+
+  it('checkout <3-char hex> → bare token (below commit-ish minimum, treated as branch)', () => {
+    expect(parseGitTargetBranch('checkout', ['abc'])).toBe('abc');
   });
 
   it('checkout (no arg) → null', () => {

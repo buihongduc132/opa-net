@@ -106,8 +106,13 @@ export class DecisionBuilder {
       evaluated_at: (this.deps.now ?? (() => new Date()))().toISOString(),
       decision_id: (this.deps.uuid ?? randomUUID)(),
       duration_ms: engine.durationMs,
-      signals: signals ?? {},
+      ...(this.hasSignals(signals) ? { signals: signals } : {}),
     };
+  }
+
+  /** True when the signals object is present and non-empty (D5: omit when empty). */
+  private hasSignals(signals?: Record<string, unknown>): signals is Record<string, unknown> {
+    return signals !== undefined && Object.keys(signals).length > 0;
   }
 
   private buildReasons(raw: readonly RawDeny[], parsed: ParsedCommand): Reason[] {

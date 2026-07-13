@@ -45,16 +45,31 @@ export class GitSignals implements SignalCollector {
 }
 
 /**
+ * A token that looks like a commit-ish hash. Git accepts abbreviated object
+ * names from 4 hex chars up to a full 40-char SHA-1 (or 64 for SHA-256, but
+ * the branch-protection gate only needs to recognize the commit-ish shape).
+ */
+const COMMIT_ISH_RE = /^[0-9a-fA-F]{4,40}$/;
+
+/**
  * Extract the target branch token from `git checkout/switch <branch>`.
  *
- * Branch-name-agnostic (D3): returns the bare token when the form is
+ * Returns the bare token when the form is
  * `<checkout|switch> <single-positional-non-flag>`. Returns null when:
  *   - subcommand is neither checkout nor switch
  *   - ANY flag is present (-b, -, --track, --, -f, ...) — ambiguous intent
  *   - zero or >1 positional args remain
+ *   - the single positional token looks like a commit-ish hash
  *
- * The branch-protection rego rule decides whether a non-null token actually
- * constitutes a branch switch; this parser just isolates the candidate.
+ * COMMIT-ISH DISCRIMINATION (verifier fix):
+ * `git checkout <sha>` from a protected branch is a detached-HEAD checkout,
+ * NOT a branch switch, so the branch-protection rule MUST NOT fire. Because
+ * we cannot reliably distinguish a 4–40 hex-char commit hash from an
+ * all-hex branch name at parse time (no git round-trip), we conservatively
+ * fail open: a token matching the commit-ish shape returns null. The signal
+ * is collected at DECISION time, so current_branch is still the protected
+ * branch — treating such a token as a branch would produce a false deny.
+ * This only relaxes the gate; non-hex branch names are unaffected.
  */
 export function parseGitTargetBranch(subcommand: string, args: string[]): string | null {
   if (subcommand !== 'checkout' && subcommand !== 'switch') {
@@ -66,5 +81,9 @@ export function parseGitTargetBranch(subcommand: string, args: string[]): string
   if (args.length !== 1) {
     return null;
   }
-  return args[0];
+  const token = args[0];
+  if (COMMIT_ISH_RE.test(token)) {
+    return null;
+  }
+  return token;
 }
