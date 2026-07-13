@@ -60,4 +60,34 @@ describe('rule catalog ↔ rego parity', () => {
   it('catalog has > 20 rules (rulebook is non-trivial)', () => {
     expect(RULES.length).toBeGreaterThan(20);
   });
+
+  // ── cc-safety-net rulebook parity: the 4 new tmux/pkill/killall rules ──
+  // These rule IDs (canonical cc-safety-net rulebook names) MUST appear in the
+  // catalog once the port is complete. RED until src/rules/catalog.ts is extended.
+  describe('cc-safety-net tmux/pkill/killall rule parity', () => {
+    const REQUIRED_RULE_IDS = [
+      'block-tmux-kill-server',
+      'block-tmux-kill-session',
+      'block-pkill-tmux-wezterm',
+      'block-killall-tmux-wezterm',
+    ];
+
+    it('catalog contains all 4 new tmux/pkill/killall rule IDs', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('each new tmux/pkill/killall rule maps to a known family', () => {
+      const knownFamilies = new Set(RULES.map((r) => r.family));
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      for (const id of REQUIRED_RULE_IDS) {
+        const rule = byId.get(id);
+        expect(rule, `catalog entry for ${id} must exist`).toBeDefined();
+        // family is non-empty and registered in the catalog itself
+        expect(rule!.family.length).toBeGreaterThan(0);
+        expect(knownFamilies.has(rule!.family), `family ${rule!.family} for ${id}`).toBe(true);
+      }
+    });
+  });
 });

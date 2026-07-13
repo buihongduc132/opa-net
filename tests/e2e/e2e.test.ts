@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 const ROOT = resolve(import.meta.dir, '../../');
 const BIN = resolve(ROOT, 'bin/pi-opa-net.js');
 const OPA = process.env.HOME
-  ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.1/opa`
+  ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.2/opa`
   : 'opa';
 const opaAvailable = existsSync(OPA);
 
@@ -98,6 +98,30 @@ const DENY_CASES: ExpectDeny[] = [
     ruleId: 'block-glab-repo-delete-archive',
     family: 'glab',
   },
+  // GROUP G — tmux / pkill / killall session protection (cc-safety-net parity).
+  // RED: these rule IDs are not yet in the pi-opa-net engine; the cases below
+  // assert deny + provenance and will fail until policy/safety.rego + catalog
+  // are extended with the 4 missing rules.
+  {
+    command: 'tmux kill-server',
+    ruleId: 'block-tmux-kill-server',
+    family: 'tmux',
+  },
+  {
+    command: 'tmux kill-session -t foo',
+    ruleId: 'block-tmux-kill-session',
+    family: 'tmux',
+  },
+  {
+    command: 'pkill tmux',
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+  },
+  {
+    command: 'killall tmux',
+    ruleId: 'block-killall-tmux-wezterm',
+    family: 'killall',
+  },
 ];
 
 const ALLOW_CASES: ExpectAllow[] = [
@@ -106,6 +130,13 @@ const ALLOW_CASES: ExpectAllow[] = [
   { command: 'git status' }, // not blocked
   { command: 'docker ps' }, // not blocked
   { command: 'ls -la' }, // not blocked
+  // GROUP G carve-outs (cc-safety-net parity).
+  // RED: the engine must NOT deny these read-only / unrelated targets once the
+  // new tmux/pkill/killall rules land. They will pass today because the rules
+  // do not exist yet, but they pin the carve-out contract for the GREEN phase.
+  { command: 'tmux ls' }, // read-only tmux — must stay allowed
+  { command: 'pkill firefox' }, // unrelated target — must stay allowed
+  { command: 'killall vim' }, // unrelated target — must stay allowed
 ];
 
 describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {

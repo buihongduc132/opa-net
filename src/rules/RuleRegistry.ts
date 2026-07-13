@@ -10,7 +10,10 @@ export type RuleFamily =
   | 'glab'
   | 'bd'
   | 'builtin'
-  | 'custom';
+  | 'custom'
+  | 'tmux'
+  | 'pkill'
+  | 'killall';
 
 export interface RuleMeta {
   readonly ruleId: string;
@@ -18,6 +21,15 @@ export interface RuleMeta {
   readonly message: string;
   /** Safe alternatives for the "did you mean?" UX. Optional. */
   readonly suggestions?: readonly string[];
+  /**
+   * Disambiguation tokens used ONLY when multiple registered rules share an
+   * identical message AND family (collision). If any of these tokens appears
+   * in the parsed command's args, this candidate wins. Only needed for rules
+   * whose reason text is byte-identical to a sibling rule's (e.g.
+   * block-tmux-kill-server vs block-tmux-kill-session, which share the same
+   * verbatim reason and family 'tmux').
+   */
+  readonly matchArgs?: readonly string[];
 }
 
 /**
@@ -28,20 +40,51 @@ export interface RuleMeta {
  * so audits trace decision → rule → source line. Messages not in the registry
  * fall back to a synthesized `custom:<hash>` id with family=custom.
  *
+ * Multiple rules MAY share an identical message (e.g. the four
+ * tmux/pkill/killall session-kill rules all carry the same verbatim reason
+ * text). Such collisions are stored as a list and resolved by family hint
+ * (inferred from the parsed program) when one is supplied to lookup().
+ *
  * Keeping this in TS (not rego) is intentional: rego is the policy, this is the
  * provenance metadata layer. DRY — one canonical list, consumed by the builder.
  */
 export class RuleRegistry {
-  private readonly byMessage: Map<string, RuleMeta>;
+  private readonly byMessage: Map<string, RuleMeta[]>;
 
   constructor(rules: readonly RuleMeta[]) {
-    this.byMessage = new Map(rules.map((r) => [r.message, r]));
+    this.byMessage = new Map<string, RuleMeta[]>();
+    for (const r of rules) {
+      const arr = this.byMessage.get(r.message) ?? [];
+      arr.push(r);
+      this.byMessage.set(r.message, arr);
+    }
   }
 
-  /** Look up metadata for a deny message; synthesizes a custom entry if unknown. */
-  lookup(deny: RawDeny): RuleMeta {
-    const found = this.byMessage.get(deny.message);
-    if (found) return found;
+  /**
+   * Look up metadata for a deny message; synthesizes a custom entry if unknown.
+   *
+   * Collision resolution order when several registered rules share the same
+   * message:
+   *   1. `familyHint` (inferred from the parsed program) narrows to that family.
+   *   2. `parsedArgs` narrows further to a candidate whose `matchArgs` intersects
+   *      the parsed args (for rules that share message AND family, e.g. the two
+   *      tmux kill-* rules).
+   *   3. Otherwise the first remaining candidate is returned.
+   */
+  lookup(deny: RawDeny, familyHint?: string, parsedArgs?: readonly string[]): RuleMeta {
+    const candidates = this.byMessage.get(deny.message);
+    if (candidates && candidates.length > 0) {
+      let pool = candidates;
+      if (familyHint) {
+        const byFamily = pool.filter((c) => c.family === familyHint);
+        if (byFamily.length > 0) pool = byFamily;
+      }
+      if (parsedArgs && pool.length > 1) {
+        const byArgs = pool.filter((c) => c.matchArgs?.some((t) => parsedArgs.includes(t)));
+        if (byArgs.length > 0) pool = byArgs;
+      }
+      return pool[0];
+    }
     return {
       ruleId: `custom:${hashMessage(deny.message)}`,
       family: 'custom',

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cupcake-compatible policy** (`.cupcake/policies/claude/cc_safety_net_parity.rego`) that ports all 42 active `cc-safety-net` user rules into OPA/Rego v1 with the Cupcake custom-policy structure: `# METADATA`, `package cupcake.policies.cc_safety_net_parity`, `import rego.v1`, and mandatory self-filtering. The aggregation entrypoint `data.cupcake.system.evaluate` is provided in `.cupcake/system/evaluate.rego`.
+- **Rulebook fixture** at `tests/fixtures/user-rules.rulebook.json` and a new `tests/cupcake/cc_safety_net_parity.test.ts` suite that runs all 53 rulebook `tests[]` fixtures + 12 tmux/pkill/killall scenarios + self-filtering checks.
+- **4 missing tmux/pkill/killall rules** to the pi-opa-net engine (`policy/safety.rego`, `src/rules/catalog.ts`) for full 42-rule parity with the active `cc-safety-net` rulebook.
+- **DecisionBuilder disambiguation** for rules that share identical reason text (the tmux session-kill family): the registry now maps `(message, family)` to rule metadata when a raw deny carries a `family` hint, falling back to the previous message-only lookup.
+- **Documentation**: `docs/cupcake-parity.md` describing the Cupcake policy and standalone `opa eval` usage; README updated to reflect the 42-rule catalog and the new policy file.
 ## [0.1.0] - 2026-07-01
 
 ### Added
