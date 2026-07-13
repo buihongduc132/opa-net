@@ -9,6 +9,12 @@ jobs:
   verify:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    env:
+      # Belt-and-suspenders: use the OPA setup-opa installed on PATH instead
+      # of the mise-path resolver. The runner has ~/.local/share/mise/installs/opa
+      # present but with no semver opa install, which previously produced a
+      # non-existent candidate path -> ENOENT -> fail-open in 0ms.
+      PI_OPA_BINARY: opa
     strategy:
       fail-fast: false
       matrix:

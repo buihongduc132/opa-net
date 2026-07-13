@@ -38,16 +38,25 @@ export function resolveOpaBinary(explicit?: string): string {
   try {
     const versions = readdirSafe(misePath);
     // Prefer the most specific semver; fall back to 'latest'.
-    const pick =
-      versions
+    // IMPORTANT: verify each candidate actually exists before returning it.
+    // A mise dir may exist without any real opa install (e.g. CI runners where
+    // setup-opa put opa on PATH instead). Returning a non-existent path makes
+    // the engine spawn ENOENT and fail-open in ~0ms.
+    const picks = [
+      ...versions
         .filter((v) => /^\d+\.\d+\.\d+$/.test(v))
         .sort()
-        .at(-1) ?? 'latest';
-    const candidate = `${misePath}/${pick}/opa`;
-    return candidate;
+        .reverse(),
+      'latest',
+    ];
+    for (const v of picks) {
+      const candidate = `${misePath}/${v}/opa`;
+      if (existsSyncSafe(candidate)) return candidate;
+    }
   } catch {
-    return 'opa';
+    // fall through to PATH lookup
   }
+  return 'opa';
 }
 
 function readdirSafe(path: string): string[] {
@@ -58,6 +67,16 @@ function readdirSafe(path: string): string[] {
     return fs.readdirSync(path);
   } catch {
     return [];
+  }
+}
+
+function existsSyncSafe(path: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('node:fs') as typeof import('node:fs');
+    return fs.existsSync(path);
+  } catch {
+    return false;
   }
 }
 
