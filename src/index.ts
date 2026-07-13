@@ -3,7 +3,7 @@
 // Consumers: pi extension (future pi-opa-net-ext), scripts, other agents.
 // CLI entrypoint lives in src/cli/run.ts.
 
-export { configFromEnv, resolveOpaBinary } from './config/Config.ts';
+export { configFromEnv, parseProtectedBranches, resolveOpaBinary } from './config/Config.ts';
 export type { EngineConfig, FailMode } from './config/Config.ts';
 
 export { CommandParserCoordinator, RegexFallbackParser, ShellQuoteParser } from './parser/index.ts';
@@ -14,6 +14,15 @@ export type { DecisionEngine, EngineDecision, RawDeny } from './engine/index.ts'
 
 export { RULES, RuleRegistry, inferFamilyFromProgram } from './rules/index.ts';
 export type { RuleFamily, RuleMeta } from './rules/index.ts';
+
+export { GitSignals, collectAll, parseGitTargetBranch } from './signals/index.ts';
+export type {
+  GitSignal,
+  ParsedCommandLike,
+  SignalCollector,
+  SignalContext,
+  Signals,
+} from './signals/index.ts';
 
 export {
   DecisionBuilder,

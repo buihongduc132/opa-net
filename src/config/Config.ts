@@ -23,6 +23,8 @@ export interface EngineConfig {
   readonly hostname?: string;
   /** Calling session ID for metadata (pi/claude session). Empty if none. */
   readonly sessionId?: string;
+  /** Branches the branch-protection rule guards (D4). Default = the 5-branch set. */
+  readonly protectedBranches?: string[];
 }
 
 const ENV = process.env;
@@ -36,16 +38,25 @@ export function resolveOpaBinary(explicit?: string): string {
   try {
     const versions = readdirSafe(misePath);
     // Prefer the most specific semver; fall back to 'latest'.
-    const pick =
-      versions
+    // IMPORTANT: verify each candidate actually exists before returning it.
+    // A mise dir may exist without any real opa install (e.g. CI runners where
+    // setup-opa put opa on PATH instead). Returning a non-existent path makes
+    // the engine spawn ENOENT and fail-open in ~0ms.
+    const picks = [
+      ...versions
         .filter((v) => /^\d+\.\d+\.\d+$/.test(v))
         .sort()
-        .at(-1) ?? 'latest';
-    const candidate = `${misePath}/${pick}/opa`;
-    return candidate;
+        .reverse(),
+      'latest',
+    ];
+    for (const v of picks) {
+      const candidate = `${misePath}/${v}/opa`;
+      if (existsSyncSafe(candidate)) return candidate;
+    }
   } catch {
-    return 'opa';
+    // fall through to PATH lookup
   }
+  return 'opa';
 }
 
 function readdirSafe(path: string): string[] {
@@ -59,10 +70,49 @@ function readdirSafe(path: string): string[] {
   }
 }
 
+function existsSyncSafe(path: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('node:fs') as typeof import('node:fs');
+    return fs.existsSync(path);
+  } catch {
+    return false;
+  }
+}
+
+/** Default protected-branch set when PIOPANET_PROTECTED_BRANCHES is unset (D4). */
+export const DEFAULT_PROTECTED_BRANCHES: readonly string[] = [
+  'main',
+  'staging',
+  'dev',
+  'test',
+  'master',
+];
+
+/**
+ * Parse the protected-branches config (conditional-branch-gate D4).
+ *
+ *   undefined → default 5-branch set
+ *   ''        → [] (explicitly disables the rule)
+ *   otherwise → comma-split, trimmed, empty tokens dropped
+ */
+export function parseProtectedBranches(envValue?: string): string[] {
+  if (envValue === undefined) {
+    return [...DEFAULT_PROTECTED_BRANCHES];
+  }
+  if (envValue === '') {
+    return [];
+  }
+  return envValue
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 /** Build an EngineConfig from environment + defaults. */
 export function configFromEnv(policyPath: string): EngineConfig {
   const failMode: FailMode = (ENV.PI_OPA_FAIL_MODE as FailMode) === 'closed' ? 'closed' : 'open';
-  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10) : 250;
+  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10) : 5000;
   const cacheTtlMs = ENV.PI_OPA_CACHE_TTL_MS
     ? Number.parseInt(ENV.PI_OPA_CACHE_TTL_MS, 10)
     : DEFAULT_CACHE_TTL_MS;
@@ -74,5 +124,6 @@ export function configFromEnv(policyPath: string): EngineConfig {
     cacheTtlMs,
     hostname: ENV.PI_OPA_HOSTNAME,
     sessionId: ENV.PI_OPA_SESSION_ID,
+    protectedBranches: parseProtectedBranches(ENV.PIOPANET_PROTECTED_BRANCHES),
   };
 }

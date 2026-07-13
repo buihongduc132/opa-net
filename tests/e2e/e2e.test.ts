@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
@@ -17,10 +16,21 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dir, '../../');
 const BIN = resolve(ROOT, 'bin/pi-opa-net.js');
-const OPA = process.env.HOME
-  ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.2/opa`
-  : 'opa';
-const opaAvailable = existsSync(OPA);
+
+// PATH-based OPA detection so the e2e suite actually runs in CI (where
+// setup-opa installs OPA to a non-mise path). Falls back gracefully.
+function opaOnPath(): boolean {
+  try {
+    execFileSync('opa', ['version'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const opaAvailable = opaOnPath();
 
 interface CaseResult {
   exitCode: number;

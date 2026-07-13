@@ -9,11 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Context signals + conditional branch-protection gate** (`conditional-branch-gate`).
+  - `src/signals/GitSignals.ts` collects `signals.git.{available, current_branch, target_branch}`
+    by shelling `git rev-parse --abbrev-ref HEAD` in the decision cwd.
+  - `src/signals/parseGitTargetBranch.ts` extracts the target branch from
+    `git checkout/switch <branch>` while ignoring flags.
+  - `src/signals/collectAll.ts` merges collectors; thrown errors are suppressed
+    to `{ available: false }` (fail-open).
+  - `policy/safety.rego` adds a branch-protection deny rule: `git checkout/switch`
+    off a protected branch to a different branch is denied. Protected branches
+    come from `data.config.protected_branches` loaded via a temp data document.
+  - `src/config/Config.ts` adds `parseProtectedBranches` and
+    `PIOPANET_PROTECTED_BRANCHES` env support (default: `main,staging,dev,test,master`).
+  - `src/engine/OpaCliEngine.ts` accepts optional `{ signals, protectedBranches }`
+    and extends the OPA `input` with `signals`; writes the protected-branches
+    data document when the list is non-empty.
+  - `src/output/DecisionBuilder.ts` includes `signals` in the decision-output record.
+  - `schemas/decision-output.v1.json` adds an optional, additive `signals` property.
+  - `docs/signals.md` documents the signal contract and how to add a new collector.
+  - Public API surface in `src/index.ts` exports `GitSignals`, `collectAll`,
+    `parseGitTargetBranch`, and signal types.
+
 - **Cupcake-compatible policy** (`.cupcake/policies/claude/cc_safety_net_parity.rego`) that ports all 42 active `cc-safety-net` user rules into OPA/Rego v1 with the Cupcake custom-policy structure: `# METADATA`, `package cupcake.policies.cc_safety_net_parity`, `import rego.v1`, and mandatory self-filtering. The aggregation entrypoint `data.cupcake.system.evaluate` is provided in `.cupcake/system/evaluate.rego`.
 - **Rulebook fixture** at `tests/fixtures/user-rules.rulebook.json` and a new `tests/cupcake/cc_safety_net_parity.test.ts` suite that runs all 53 rulebook `tests[]` fixtures + 12 tmux/pkill/killall scenarios + self-filtering checks.
 - **4 missing tmux/pkill/killall rules** to the pi-opa-net engine (`policy/safety.rego`, `src/rules/catalog.ts`) for full 42-rule parity with the active `cc-safety-net` rulebook.
 - **DecisionBuilder disambiguation** for rules that share identical reason text (the tmux session-kill family): the registry now maps `(message, family)` to rule metadata when a raw deny carries a `family` hint, falling back to the previous message-only lookup.
 - **Documentation**: `docs/cupcake-parity.md` describing the Cupcake policy and standalone `opa eval` usage; README updated to reflect the 42-rule catalog and the new policy file.
+
+### Changed
+
+- README updated to document `PIOPANET_PROTECTED_BRANCHES` and the new branch-protection capability.
+- `docs/open-threads.yaml` OT5 updated to note that the signals gap is resolved inside the engine.
 ## [0.1.0] - 2026-07-01
 
 ### Added

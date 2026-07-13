@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { type EngineConfig, configFromEnv, resolveOpaBinary } from '../../../src/config/Config.ts';
 
 describe('resolveOpaBinary', () => {
@@ -28,16 +31,72 @@ describe('resolveOpaBinary', () => {
       if (old) process.env.PI_OPA_BINARY = old;
     }
   });
+
+  // --- Regression: mise path resolution must VERIFY candidate exists ---
+
+  it('returns "opa" when mise path does NOT exist', () => {
+    const oldEnv = process.env.PI_OPA_BINARY;
+    const oldHome = process.env.HOME;
+    delete process.env.PI_OPA_BINARY;
+    process.env.HOME = mkdtempSync(join(tmpdir(), 'pi-opa-nohome-'));
+    try {
+      expect(resolveOpaBinary()).toBe('opa');
+    } finally {
+      process.env.HOME = oldHome;
+      if (oldEnv) process.env.PI_OPA_BINARY = oldEnv;
+    }
+  });
+
+  // THE BUG CASE: mise dir exists, has a `latest/` subdir, but NO opa binary
+  // inside. Previously this returned `<misePath>/latest/opa` (non-existent)
+  // -> engine spawned ENOENT -> fail-open in 0ms.
+  it('returns "opa" when mise path exists but no real opa binary is present (THE BUG)', () => {
+    const oldEnv = process.env.PI_OPA_BINARY;
+    const oldHome = process.env.HOME;
+    delete process.env.PI_OPA_BINARY;
+    const tmpHome = mkdtempSync(join(tmpdir(), 'pi-opa-fakemise-'));
+    const misePath = join(tmpHome, '.local/share/mise/installs/opa');
+    mkdirSync(join(misePath, 'latest'), { recursive: true });
+    process.env.HOME = tmpHome;
+    try {
+      const result = resolveOpaBinary();
+      expect(result).toBe('opa');
+      expect(existsSync(result) === false || result === 'opa').toBe(true);
+    } finally {
+      process.env.HOME = oldHome;
+      if (oldEnv) process.env.PI_OPA_BINARY = oldEnv;
+    }
+  });
+
+  it('returns the real mise candidate when a semver opa install exists', () => {
+    const oldEnv = process.env.PI_OPA_BINARY;
+    const oldHome = process.env.HOME;
+    delete process.env.PI_OPA_BINARY;
+    const tmpHome = mkdtempSync(join(tmpdir(), 'pi-opa-realmise-'));
+    const misePath = join(tmpHome, '.local/share/mise/installs/opa');
+    const semver = '1.2.3';
+    mkdirSync(join(misePath, semver), { recursive: true });
+    writeFileSync(join(misePath, semver, 'opa'), '#!/bin/sh\necho fake opa\n');
+    process.env.HOME = tmpHome;
+    try {
+      const expected = join(misePath, semver, 'opa');
+      expect(resolveOpaBinary()).toBe(expected);
+      expect(existsSync(expected)).toBe(true);
+    } finally {
+      process.env.HOME = oldHome;
+      if (oldEnv) process.env.PI_OPA_BINARY = oldEnv;
+    }
+  });
 });
 
 describe('configFromEnv', () => {
-  it('defaults: failMode open, timeout 250, cacheTtl 0', () => {
+  it('defaults: failMode open, timeout 5000, cacheTtl 0', () => {
     const old = process.env.PI_OPA_FAIL_MODE;
     delete process.env.PI_OPA_FAIL_MODE;
     try {
       const c = configFromEnv('/p/safety.rego');
       expect(c.failMode).toBe('open');
-      expect(c.timeoutMs).toBe(250);
+      expect(c.timeoutMs).toBe(5000);
       expect(c.cacheTtlMs).toBe(0);
       expect(c.policyPath).toBe('/p/safety.rego');
     } finally {

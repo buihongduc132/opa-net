@@ -73,3 +73,9 @@ threads:
       live in their own repo" rule. Not in scope for THIS repo's v1.
     implementation: this repo exposes CLI + programmatic API (src/index.ts);
                     the pi extension is future work in pi-opa-net-ext repo
+    update_2026_07_14: |
+      The OT5-era signal-gap is now resolved inside the engine itself: pi-opa-net
+      collects `input.signals.git` (current_branch / target_branch / available)
+      via `src/signals/GitSignals.ts` and feeds a conditional branch-protection
+      gate in policy/safety.rego. The future pi-opa-net-ext adapter just shells
+      out; no signal collection is needed in the extension. See docs/signals.md.

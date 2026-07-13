@@ -24,6 +24,7 @@ Three limitations of today's asymmetric, agent-specific guard output that this f
   - Cupcake-compatible policy: `.cupcake/policies/claude/cc_safety_net_parity.rego` (all 42 active `cc-safety-net` rules in OPA/Rego v1)
 - **Engine:** OPA 1.x (lazy-loaded on every dev box)
 - **Scope:** bash command guarding only (see [`docs/locked-decisions.yaml`](docs/locked-decisions.yaml) LD3)
+- **Context signals:** `input.signals.git` feeds a conditional branch-protection gate — deny `git checkout/switch` off a protected branch (see [`docs/signals.md`](docs/signals.md)). Configurable via `PIOPANET_PROTECTED_BRANCHES`.
 - **Pi extension:** the thin tool_call adapter lives in a separate future repo (`pi-opa-net-ext`, per OT5) — this package is the engine + library
 
 ## Installation
@@ -168,6 +169,7 @@ The default `open` matches the [`pi-safety-net`](https://www.npmjs.com/package/p
 | `PI_OPA_TIMEOUT_MS` | `250` | OPA eval timeout |
 | `PI_OPA_HOSTNAME` | `os.hostname()` | metadata.hostname |
 | `PI_OPA_SESSION_ID` | `""` | metadata.session_id |
+| `PIOPANET_PROTECTED_BRANCHES` | `main,staging,dev,test,master` | branches the branch-protection gate guards. `""` disables the rule. |
 
 ## Develop
 
@@ -190,6 +192,7 @@ This repo also ships a Cupcake-format OPA/Rego policy at `.cupcake/policies/clau
 
 - [`docs/locked-decisions.yaml`](docs/locked-decisions.yaml) — LD1–LD5 (immutable inputs).
 - [`docs/open-threads.yaml`](docs/open-threads.yaml) — OT1–OT5 resolved at implementation time.
+- [`docs/signals.md`](docs/signals.md) — context signals contract + how to add a new signal collector.
 - [`docs/cupcake-parity.md`](docs/cupcake-parity.md) — Cupcake-format policy documentation + standalone `opa eval` usage.
 
 ## Project health
