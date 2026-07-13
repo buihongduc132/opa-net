@@ -44,7 +44,9 @@ describe('configFromEnv — protectedBranches', () => {
       const c = configFromEnv('/p.rego');
       expect(c.protectedBranches).toEqual(['trunk', 'develop']);
     } finally {
-      if (old) process.env.PIOPANET_PROTECTED_BRANCHES = old;
+      // Restore prior state exactly; `if (old)` would treat '' as absent and
+      // leak an altered env value into later tests.
+      if (old !== undefined) process.env.PIOPANET_PROTECTED_BRANCHES = old;
       else delete process.env.PIOPANET_PROTECTED_BRANCHES;
     }
   });
@@ -56,7 +58,8 @@ describe('configFromEnv — protectedBranches', () => {
       const c = configFromEnv('/p.rego');
       expect(c.protectedBranches).toEqual(['main', 'staging', 'dev', 'test', 'master']);
     } finally {
-      if (old) process.env.PIOPANET_PROTECTED_BRANCHES = old;
+      if (old !== undefined) process.env.PIOPANET_PROTECTED_BRANCHES = old;
+      else delete process.env.PIOPANET_PROTECTED_BRANCHES;
     }
   });
 
@@ -67,7 +70,7 @@ describe('configFromEnv — protectedBranches', () => {
       const c = configFromEnv('/p.rego');
       expect(c.protectedBranches).toEqual([]);
     } finally {
-      if (old) process.env.PIOPANET_PROTECTED_BRANCHES = old;
+      if (old !== undefined) process.env.PIOPANET_PROTECTED_BRANCHES = old;
       else delete process.env.PIOPANET_PROTECTED_BRANCHES;
     }
   });

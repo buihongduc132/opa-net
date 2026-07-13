@@ -36,6 +36,9 @@ export class GitSignals implements SignalCollector {
         cwd: ctx.cwd,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
+        // Bound the call so a hung credential helper or stuck hook cannot
+        // block the eval indefinitely; the catch below preserves fail-open.
+        timeout: 5000,
       });
       const branch = out.trim();
       if (branch === 'HEAD') {
@@ -61,6 +64,7 @@ export class GitSignals implements SignalCollector {
           cwd: ctx.cwd,
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 5000,
         });
         // exit 0 ⇒ is a local branch; keep verifiedTarget === target.
       } catch {

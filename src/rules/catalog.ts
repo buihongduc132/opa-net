@@ -104,13 +104,15 @@ export const RULES: readonly RuleMeta[] = [
     ruleId: 'branch-protection:checkout-off-protected',
     family: 'git',
     message: 'branch-protection: checkout-off-protected',
-    suggestions: ['git checkout <same-branch>', 'git switch <allowed-branch>'],
+    // No cross-branch switch is allowed off a protected branch; suggest only
+    // safe same-branch actions or moving the work elsewhere first.
+    suggestions: ['git checkout <current-branch>', 'git stash', 'git status'],
   },
   {
     ruleId: 'branch-protection:switch-off-protected',
     family: 'git',
     message: 'branch-protection: switch-off-protected',
-    suggestions: ['git switch <same-branch>', 'git checkout <allowed-branch>'],
+    suggestions: ['git switch <current-branch>', 'git stash', 'git status'],
   },
   // ── GROUP B: docker subcommands ──
   {
