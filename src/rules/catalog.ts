@@ -1,4 +1,4 @@
-import type { RuleMeta } from './RuleRegistry.ts';
+import type { RuleFamily, RuleMeta } from './RuleRegistry.ts';
 
 /**
  * Canonical rule catalog — mirrors policy/safety.rego message-for-message.
@@ -218,15 +218,51 @@ export const RULES: readonly RuleMeta[] = [
     family: 'glab',
     message: 'Public GitLab repository creation is blocked by default.',
   },
+  // ── GROUP G: tmux / pkill / killall session protection (cc-safety-net parity) ──
+  {
+    ruleId: 'block-tmux-kill-server',
+    family: 'tmux',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+    matchArgs: ['kill-server'],
+  },
+  {
+    ruleId: 'block-tmux-kill-session',
+    family: 'tmux',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+    matchArgs: ['kill-session'],
+  },
+  {
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+  },
+  {
+    ruleId: 'block-killall-tmux-wezterm',
+    family: 'killall',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+  },
 ];
 
-/** gcloud/bq produce sprintf messages — family inferred from program. */
-export function inferFamilyFromProgram(program: string): 'gcloud' | 'bq' | 'custom' {
+/** gcloud/bq produce sprintf messages — family inferred from program.
+ *  tmux/pkill/killall rules share identical reason text (the four session-kill
+ *  rules), so their family is also inferred from the program to disambiguate
+ *  the message-keyed registry. */
+export function inferFamilyFromProgram(program: string): RuleFamily {
   switch (program) {
     case 'gcloud':
       return 'gcloud';
     case 'bq':
       return 'bq';
+    case 'tmux':
+      return 'tmux';
+    case 'pkill':
+      return 'pkill';
+    case 'killall':
+      return 'killall';
     default:
       return 'custom';
   }

@@ -117,7 +117,8 @@ export class DecisionBuilder {
 
   private buildReasons(raw: readonly RawDeny[], parsed: ParsedCommand): Reason[] {
     return raw.map((d) => {
-      const meta = this.deps.registry.lookup(d);
+      const familyHint = inferFamilyFromProgram(parsed.program);
+      const meta = this.deps.registry.lookup(d, familyHint, parsed.args);
       return {
         rule_id: meta.ruleId,
         message: meta.message,
