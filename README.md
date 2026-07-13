@@ -20,7 +20,8 @@ Three limitations of today's asymmetric, agent-specific guard output that this f
 
 ## Status
 
-- **Stable:** v0.1.0 — schema v1.0, 37-rule catalog, full TDD coverage
+- **Stable:** v0.1.0 — schema v1.0, 42-rule catalog, full TDD coverage
+  - Cupcake-compatible policy: `.cupcake/policies/claude/cc_safety_net_parity.rego` (all 42 active `cc-safety-net` rules in OPA/Rego v1)
 - **Engine:** OPA 1.x (lazy-loaded on every dev box)
 - **Scope:** bash command guarding only (see [`docs/locked-decisions.yaml`](docs/locked-decisions.yaml) LD3)
 - **Pi extension:** the thin tool_call adapter lives in a separate future repo (`pi-opa-net-ext`, per OT5) — this package is the engine + library
@@ -179,12 +180,17 @@ bun run lint             # biome
 bun run smoke            # one-shot CLI check
 ```
 
-E2E tests run the live CLI against real OPA + the real policy, covering ≥40% of the 37-rule catalog.
+E2E tests run the live CLI against real OPA + the real policy, covering ≥40% of the 42-rule catalog.
+
+## Cupcake-compatible policy
+
+This repo also ships a Cupcake-format OPA/Rego policy at `.cupcake/policies/claude/cc_safety_net_parity.rego` that ports all 42 active `cc-safety-net` user rules. It can be evaluated directly by OPA or consumed as a Cupcake catalog overlay. See [`docs/cupcake-parity.md`](docs/cupcake-parity.md) for details, including the standalone `opa eval` examples and the input/output contract.
 
 ## Decisions & open threads
 
 - [`docs/locked-decisions.yaml`](docs/locked-decisions.yaml) — LD1–LD5 (immutable inputs).
 - [`docs/open-threads.yaml`](docs/open-threads.yaml) — OT1–OT5 resolved at implementation time.
+- [`docs/cupcake-parity.md`](docs/cupcake-parity.md) — Cupcake-format policy documentation + standalone `opa eval` usage.
 
 ## Project health
 
