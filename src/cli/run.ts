@@ -97,8 +97,18 @@ function buildSignalContext(
   raw: string,
   parsed: ReturnType<CommandParserCoordinator['parse']>,
 ): SignalContext {
+  // Resolve cwd defensively: if the cwd was deleted mid-session,
+  // process.cwd() throws — fall back to '.' to preserve the fail-open
+  // guarantee rather than crashing the whole decision.
+  const cwd = (() => {
+    try {
+      return process.cwd();
+    } catch {
+      return '.';
+    }
+  })();
   return {
-    cwd: process.cwd(),
+    cwd,
     raw,
     parsed: {
       program: parsed.program,

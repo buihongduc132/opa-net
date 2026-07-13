@@ -77,6 +77,7 @@ function branchProtectionReasons(rec: Record<string, unknown>): unknown[] {
 describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => {
   it('checkout away from main → DENY, reason cites branch-protection', () => {
     const repo = makeTempGitRepo('main');
+    git(repo.dir, ['branch', 'feature']); // create a REAL local branch
     try {
       const r = runInRepo('git checkout feature', repo.dir);
       expect(r.exitCode).toBe(2);
@@ -90,6 +91,7 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
 
   it('switch away from staging → DENY', () => {
     const repo = makeTempGitRepo('staging');
+    git(repo.dir, ['branch', 'release-1']); // create a REAL local branch
     try {
       const r = runInRepo('git switch release-1', repo.dir);
       expect(r.exitCode).toBe(2);
@@ -103,6 +105,7 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
 
   it('checkout from non-protected branch (feature) → ALLOW', () => {
     const repo = makeTempGitRepo('feature');
+    git(repo.dir, ['branch', 'main']); // make target a REAL local branch
     try {
       const r = runInRepo('git checkout main', repo.dir);
       expect(r.exitCode).toBe(0);
@@ -198,7 +201,9 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
 
   it('PIOPANET_PROTECTED_BRANCHES="trunk,develop": trunk DENY, main ALLOW', () => {
     const trunk = makeTempGitRepo('trunk');
+    git(trunk.dir, ['branch', 'feature']); // REAL target branch
     const main = makeTempGitRepo('main');
+    git(main.dir, ['branch', 'feature']); // REAL target branch
     try {
       const denyR = runInRepo('git checkout feature', trunk.dir, {
         PIOPANET_PROTECTED_BRANCHES: 'trunk,develop',
@@ -241,6 +246,7 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
 
   it('deny decision record CONTAINS signals.git.current_branch + target_branch (provenance)', () => {
     const repo = makeTempGitRepo('main');
+    git(repo.dir, ['branch', 'feature']); // create a REAL local branch
     try {
       const r = runInRepo('git checkout feature', repo.dir);
       expect(r.exitCode).toBe(2);
@@ -251,6 +257,36 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
       expect(git, `signals.git missing: ${r.stdout}`).toBeDefined();
       expect(git!.current_branch).toBe('main');
       expect(git!.target_branch).toBe('feature');
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  it('checkout a tracked FILE (README.md) from main → ALLOW (not a branch switch)', () => {
+    const repo = makeTempGitRepo('main');
+    try {
+      // `git checkout <file>` restores a tracked file from the index — it is
+      // NOT a branch switch. The branch-protection rule MUST NOT fire even
+      // though `README.md` parses as a valid target token.
+      const r = runInRepo('git checkout README.md', repo.dir);
+      expect(r.exitCode).toBe(0);
+      const rec = r.record!;
+      expect(rec.decision).toBe('allow');
+      expect(branchProtectionReasons(rec).length).toBe(0);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  it('checkout a REAL local branch created via `git branch` → DENY', () => {
+    const repo = makeTempGitRepo('main');
+    git(repo.dir, ['branch', 'feature']); // create a real second branch
+    try {
+      const r = runInRepo('git checkout feature', repo.dir);
+      expect(r.exitCode).toBe(2);
+      const rec = r.record!;
+      expect(rec.decision).toBe('deny');
+      expect(branchProtectionReasons(rec).length).toBeGreaterThan(0);
     } finally {
       repo.cleanup();
     }

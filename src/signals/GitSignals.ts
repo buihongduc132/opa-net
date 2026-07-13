@@ -5,7 +5,11 @@ import type { GitSignal, SignalCollector, SignalContext } from './types.ts';
  * GitSignals collector (conditional-branch-gate D3).
  *
  * Shells `git rev-parse --abbrev-ref HEAD` against the decision cwd to learn
- * the current branch, and parses the target branch from `git checkout/switch`.
+ * the current branch, parses the target branch from `git checkout/switch`,
+ * and verifies the parsed target token resolves as an ACTUAL local branch
+ * (`git rev-parse --verify --quiet refs/heads/<target>`). File-path tokens
+ * (e.g. `git checkout README.md`) and tag tokens fail this check and are
+ * treated as NOT-a-branch, so the rule only fires for real branch switches.
  *
  * Fail-open contract: on ANY error (non-repo, detached HEAD, missing git,
  * non-zero exit) the collector returns `{ available: false, ... }` instead of
@@ -25,6 +29,8 @@ export class GitSignals implements SignalCollector {
     }
 
     const git = ctx.gitPath ?? 'git';
+    let available = false;
+    let currentBranch: string | null = null;
     try {
       const out = execFileSync(git, ['rev-parse', '--abbrev-ref', 'HEAD'], {
         cwd: ctx.cwd,
@@ -36,11 +42,34 @@ export class GitSignals implements SignalCollector {
         // Detached HEAD — available:false so the rule skips.
         return { available: false, current_branch: 'HEAD', target_branch: target };
       }
-      return { available: true, current_branch: branch, target_branch: target };
+      available = true;
+      currentBranch = branch;
     } catch {
       // Non-repo, ENOENT, or non-zero exit — fail open.
       return { available: false, current_branch: null, target_branch: target };
     }
+
+    // Verify the parsed target token resolves as an ACTUAL local branch
+    // (`refs/heads/<target>`). This is the authoritative check that covers
+    // file-path tokens (e.g. `git checkout README.md`), tag tokens, and
+    // branch-shaped-but-not-existing tokens. Any error or non-zero exit ⇒
+    // treat as NOT-a-branch ⇒ set target_branch=null (fail-open).
+    let verifiedTarget = target;
+    if (available && target !== null) {
+      try {
+        execFileSync(git, ['rev-parse', '--verify', '--quiet', `refs/heads/${target}`], {
+          cwd: ctx.cwd,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        // exit 0 ⇒ is a local branch; keep verifiedTarget === target.
+      } catch {
+        // Non-zero exit / error ⇒ not a local branch ⇒ skip the rule.
+        verifiedTarget = null;
+      }
+    }
+
+    return { available, current_branch: currentBranch, target_branch: verifiedTarget };
   }
 }
 
