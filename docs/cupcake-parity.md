@@ -56,3 +56,12 @@ The policy follows the Cupcake custom-policy contract:
 5. Mandatory self-filtering inside rule bodies (event + tool checks).
 
 To use it inside a Cupcake-enabled project, add this repo as a catalog overlay or copy the `.cupcake/` directory into the target project.
+
+## Known limitations (inherited from the source rulebook)
+
+This policy is a **faithful** port of the active `cc-safety-net` user rulebook, including its token-OR matching semantics. Two consequences:
+
+- `docker compose down` / `docker compose rm` are blocked **regardless of project name**, because the rulebook's `block_args` lists both the verb (`down`/`rm`) and the `--project-name=litellm*` tokens, and `cc-safety-net` matches if ANY token appears. The rulebook's own `tests[]` fixture `docker compose down` expects `blocked`, so this port matches it. The rule names/reasons mention litellm specifically, but the effective behavior is broader. This is faithful, not a regression.
+- `block-compose-stop-litellm-services` keys on `--target=litellm*` prefixes only, so it is correctly scoped.
+
+If narrower carve-out semantics are desired later, that is a rulebook change (update `tests/fixtures/user-rules.rulebook.json` first), not a policy-only change.
