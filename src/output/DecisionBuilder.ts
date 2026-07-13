@@ -19,6 +19,8 @@ export interface DecisionOutput {
   readonly evaluated_at: string;
   readonly decision_id: string;
   readonly duration_ms: number;
+  /** Context signals collected at decision time (additive, optional, D5). */
+  readonly signals?: Record<string, unknown>;
 }
 
 export interface Reason {
@@ -70,7 +72,11 @@ export class DecisionBuilder {
     this.deps = deps;
   }
 
-  build(parsed: ParsedCommand, engine: EngineDecision): DecisionOutput {
+  build(
+    parsed: ParsedCommand,
+    engine: EngineDecision,
+    signals?: Record<string, unknown>,
+  ): DecisionOutput {
     const reasons = engine.decision === 'deny' ? this.buildReasons(engine.reasons, parsed) : [];
     const suggestions = this.collectSuggestions(reasons);
     const action = engine.decision === 'allow' ? 'allow' : 'block';
@@ -100,6 +106,7 @@ export class DecisionBuilder {
       evaluated_at: (this.deps.now ?? (() => new Date()))().toISOString(),
       decision_id: (this.deps.uuid ?? randomUUID)(),
       duration_ms: engine.durationMs,
+      signals: signals ?? {},
     };
   }
 

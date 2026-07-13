@@ -5,6 +5,8 @@ import { DecisionBuilder } from '../output/DecisionBuilder.ts';
 import { OutputFormatter, validateDecision } from '../output/OutputFormatter.ts';
 import { CommandParserCoordinator } from '../parser/index.ts';
 import { RULES, RuleRegistry } from '../rules/index.ts';
+import { GitSignals, collectAll } from '../signals/index.ts';
+import type { SignalContext } from '../signals/index.ts';
 
 export interface CliOptions {
   /** Command string to evaluate. If omitted, read from stdin. */
@@ -36,16 +38,26 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
   const parser = new CommandParserCoordinator();
   const parsed = parser.parse(raw);
 
+  // Collect context signals only for branch-switching ops (D3/D5); other
+  // commands get an empty signals object.
+  const isBranchOp =
+    parsed.program === 'git' &&
+    (parsed.subcommand === 'checkout' || parsed.subcommand === 'switch');
+  const signals = isBranchOp ? collectAll([new GitSignals()], buildSignalContext(raw, parsed)) : {};
+
   const opaVersion = await probeOpaVersion(config.opaBinary ?? 'opa');
   const engine = new OpaCliEngine(config, opaVersion);
-  const engineDecision = await engine.evaluate(parsed);
+  const engineDecision = await engine.evaluate(parsed, {
+    signals,
+    protectedBranches: config.protectedBranches,
+  });
 
   const builder = new DecisionBuilder({
     config,
     registry: new RuleRegistry(RULES),
     digest: engine.rulebookDigest(),
   });
-  const output = builder.build(parsed, engineDecision);
+  const output = builder.build(parsed, engineDecision, signals);
 
   // Hard internal gate: the record MUST validate against the schema before emit.
   validateDecision(output);
@@ -73,4 +85,27 @@ export function defaultPolicyPath(): string {
   // import.meta.dir is available under Bun; fall back to cwd-relative for Node.
   const here = (import.meta as { dir?: string }).dir ?? process.cwd();
   return resolve(here, '../../policy/safety.rego');
+}
+
+/**
+ * Build a SignalContext from the cwd + parsed command.
+ *
+ * `ParsedCommand.args` is `readonly string[]` for immutability; the signals
+ * contract uses a mutable `string[]`, so we copy here to avoid a cast.
+ */
+function buildSignalContext(
+  raw: string,
+  parsed: ReturnType<CommandParserCoordinator['parse']>,
+): SignalContext {
+  return {
+    cwd: process.cwd(),
+    raw,
+    parsed: {
+      program: parsed.program,
+      subcommand: parsed.subcommand,
+      args: [...parsed.args],
+      raw: parsed.raw,
+      parseConfidence: parsed.parseConfidence,
+    },
+  };
 }

@@ -76,6 +76,15 @@
       "type": "number",
       "minimum": 0,
       "description": "Wall-clock time from input received to decision emitted. For perf monitoring / OPA cold-start detection (relevant to lazy-load topology [LD2])."
+    },
+
+    "signals": {
+      "type": "object",
+      "description": "Context signals collected at decision time (conditional-branch-gate D3/D5). Additive + optional — absent or empty on decisions that collected no signals. Each collector contributes a named sub-object (e.g. `signals.git`). Present for git checkout/switch decisions where signals.git.{available, current_branch, target_branch} provide provenance for the branch-protection rule.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
     }
   },
 

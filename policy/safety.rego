@@ -18,7 +18,19 @@
 #     subcommand: "commit" | "stash" | ""          (string; "" if none)
 #     args:       ["-am", "--hard", ...]           (array of strings)
 #     raw:        "git stash list"                 (original string, for regex fallback)
+#     signals: {                                  (conditional-branch-gate D3/D5)
+#       git: {
+#         available:      bool                     (false ⇒ rule skips, fail-open)
+#         current_branch: string | null            (null in non-repo / missing git)
+#         target_branch:  string | null            (parsed checkout/switch target)
+#       }
+#     }
 #   }
+#
+# Branch-protection also consumes a data document passed via `-d data.json`:
+#   data.config.protected_branches: ["main", "staging", ...]
+# When no data document is supplied the rule sees an undefined set and never
+# fires (the fail-open behavior for unprotected configs).
 #
 # Fail-mode: `default allow := true` = fail-OPEN. Matches pi-safety-net
 # fork's behavior. Fail-mode when OPA itself is down is [OT2] (open).
@@ -181,6 +193,29 @@ deny[msg] if {
     input.subcommand == "rebase"
     has_any_arg(input.args, ["--continue", "--skip", "--abort"])
     msg := "git rebase --continue/--skip/--abort should be run only with explicit approval."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP G — branch-protection gate (conditional-branch-gate D3/D4)
+# Deny checkout/switch OFF a protected branch to a DIFFERENT branch.
+# Fails open (never fires) when:
+#   - signals.git is absent (non-git command — `input.signals.git` is undefined)
+#   - signals.git.available is false (non-repo / detached HEAD / missing git)
+#   - current_branch is not in data.config.protected_branches
+#   - target_branch is null, or equals current_branch
+# Protected branches come from a data document (-d data.json) as
+# data.config.protected_branches, so empty/undefined config ⇒ no match.
+# ──────────────────────────────────────────────────────────────────
+
+deny[msg] if {
+    input.program == "git"
+    input.subcommand in {"checkout", "switch"}
+    input.signals.git.available
+    input.signals.git.current_branch != null
+    input.signals.git.target_branch != null
+    input.signals.git.target_branch != input.signals.git.current_branch
+    input.signals.git.current_branch in data.config.protected_branches
+    msg := sprintf("branch-protection: %s off protected branch %s", [input.subcommand, input.signals.git.current_branch])
 }
 
 # ──────────────────────────────────────────────────────────────────

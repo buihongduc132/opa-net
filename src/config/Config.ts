@@ -23,6 +23,8 @@ export interface EngineConfig {
   readonly hostname?: string;
   /** Calling session ID for metadata (pi/claude session). Empty if none. */
   readonly sessionId?: string;
+  /** Branches the branch-protection rule guards (D4). Default = the 5-branch set. */
+  readonly protectedBranches?: string[];
 }
 
 const ENV = process.env;
@@ -59,6 +61,35 @@ function readdirSafe(path: string): string[] {
   }
 }
 
+/** Default protected-branch set when PIOPANET_PROTECTED_BRANCHES is unset (D4). */
+export const DEFAULT_PROTECTED_BRANCHES: readonly string[] = [
+  'main',
+  'staging',
+  'dev',
+  'test',
+  'master',
+];
+
+/**
+ * Parse the protected-branches config (conditional-branch-gate D4).
+ *
+ *   undefined → default 5-branch set
+ *   ''        → [] (explicitly disables the rule)
+ *   otherwise → comma-split, trimmed, empty tokens dropped
+ */
+export function parseProtectedBranches(envValue?: string): string[] {
+  if (envValue === undefined) {
+    return [...DEFAULT_PROTECTED_BRANCHES];
+  }
+  if (envValue === '') {
+    return [];
+  }
+  return envValue
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 /** Build an EngineConfig from environment + defaults. */
 export function configFromEnv(policyPath: string): EngineConfig {
   const failMode: FailMode = (ENV.PI_OPA_FAIL_MODE as FailMode) === 'closed' ? 'closed' : 'open';
@@ -74,5 +105,6 @@ export function configFromEnv(policyPath: string): EngineConfig {
     cacheTtlMs,
     hostname: ENV.PI_OPA_HOSTNAME,
     sessionId: ENV.PI_OPA_SESSION_ID,
+    protectedBranches: parseProtectedBranches(ENV.PIOPANET_PROTECTED_BRANCHES),
   };
 }
