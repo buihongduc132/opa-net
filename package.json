@@ -25,7 +25,7 @@
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "check": "bun run typecheck && bun run lint:ci && bun test --coverage",
-    "smoke": "bun run bin/pi-opa-net.js eval \"git stash pop\" --json",
+    "smoke": "bash scripts/smoke.sh",
     "prepublishOnly": "bun run check"
   },
   "keywords": [

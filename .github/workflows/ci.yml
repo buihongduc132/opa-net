@@ -28,6 +28,9 @@ jobs:
         uses: open-policy-agent/setup-opa@v2
         with:
           version: "1.3.0"
+          # static: true avoids 404s on runners where the non-static darwin
+          # release asset for the pinned version is missing.
+          static: true
       - name: OPA version (diagnostic)
         run: opa version
       - run: bun install --frozen-lockfile
