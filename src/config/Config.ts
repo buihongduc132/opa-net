@@ -93,7 +93,7 @@ export function parseProtectedBranches(envValue?: string): string[] {
 /** Build an EngineConfig from environment + defaults. */
 export function configFromEnv(policyPath: string): EngineConfig {
   const failMode: FailMode = (ENV.PI_OPA_FAIL_MODE as FailMode) === 'closed' ? 'closed' : 'open';
-  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10) : 250;
+  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10) : 5000;
   const cacheTtlMs = ENV.PI_OPA_CACHE_TTL_MS
     ? Number.parseInt(ENV.PI_OPA_CACHE_TTL_MS, 10)
     : DEFAULT_CACHE_TTL_MS;

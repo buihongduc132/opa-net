@@ -74,13 +74,25 @@ function branchProtectionReasons(rec: Record<string, unknown>): unknown[] {
   );
 }
 
+/**
+ * Assert a DENY (exit code 2). On mismatch, throw an Error that embeds the
+ * full decision record so CI failures are self-diagnosing (source / reasons).
+ */
+function assertDeny(r: CliRun): void {
+  if (r.exitCode !== 2) {
+    throw new Error(
+      `expected DENY (exit 2) but got exit ${r.exitCode}. Record: ${r.stdout || '(empty)'}`,
+    );
+  }
+}
+
 describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => {
   it('checkout away from main → DENY, reason cites branch-protection', () => {
     const repo = makeTempGitRepo('main');
     git(repo.dir, ['branch', 'feature']); // create a REAL local branch
     try {
       const r = runInRepo('git checkout feature', repo.dir);
-      expect(r.exitCode).toBe(2);
+      assertDeny(r);
       const rec = r.record!;
       expect(rec.decision).toBe('deny');
       expect(branchProtectionReasons(rec).length).toBeGreaterThan(0);
@@ -94,7 +106,7 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
     git(repo.dir, ['branch', 'release-1']); // create a REAL local branch
     try {
       const r = runInRepo('git switch release-1', repo.dir);
-      expect(r.exitCode).toBe(2);
+      assertDeny(r);
       const rec = r.record!;
       expect(rec.decision).toBe('deny');
       expect(branchProtectionReasons(rec).length).toBeGreaterThan(0);
@@ -208,7 +220,7 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
       const denyR = runInRepo('git checkout feature', trunk.dir, {
         PIOPANET_PROTECTED_BRANCHES: 'trunk,develop',
       });
-      expect(denyR.exitCode).toBe(2);
+      assertDeny(denyR);
       expect(denyR.record!.decision).toBe('deny');
       expect(branchProtectionReasons(denyR.record!).length).toBeGreaterThan(0);
 
@@ -249,7 +261,7 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
     git(repo.dir, ['branch', 'feature']); // create a REAL local branch
     try {
       const r = runInRepo('git checkout feature', repo.dir);
-      expect(r.exitCode).toBe(2);
+      assertDeny(r);
       const rec = r.record!;
       const signals = rec.signals as Record<string, unknown> | undefined;
       expect(signals, `signals missing on record: ${r.stdout}`).toBeDefined();
@@ -283,7 +295,7 @@ describe.skipIf(!OPA_AVAILABLE)('branch-protection e2e (live CLI + OPA)', () => 
     git(repo.dir, ['branch', 'feature']); // create a real second branch
     try {
       const r = runInRepo('git checkout feature', repo.dir);
-      expect(r.exitCode).toBe(2);
+      assertDeny(r);
       const rec = r.record!;
       expect(rec.decision).toBe('deny');
       expect(branchProtectionReasons(rec).length).toBeGreaterThan(0);

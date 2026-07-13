@@ -31,13 +31,13 @@ describe('resolveOpaBinary', () => {
 });
 
 describe('configFromEnv', () => {
-  it('defaults: failMode open, timeout 250, cacheTtl 0', () => {
+  it('defaults: failMode open, timeout 5000, cacheTtl 0', () => {
     const old = process.env.PI_OPA_FAIL_MODE;
     delete process.env.PI_OPA_FAIL_MODE;
     try {
       const c = configFromEnv('/p/safety.rego');
       expect(c.failMode).toBe('open');
-      expect(c.timeoutMs).toBe(250);
+      expect(c.timeoutMs).toBe(5000);
       expect(c.cacheTtlMs).toBe(0);
       expect(c.policyPath).toBe('/p/safety.rego');
     } finally {
