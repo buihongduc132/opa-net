@@ -20,12 +20,21 @@ Three limitations of today's asymmetric, agent-specific guard output that this f
 
 ## Status
 
-- **Stable:** v0.1.0 — schema v1.0, 42-rule catalog, full TDD coverage
+- **Stable:** v0.2.0 — schema v1.0 (additive), 42-rule catalog, capability-based unlock-keys, full TDD coverage (304 tests)
   - Cupcake-compatible policy: `.cupcake/policies/claude/cc_safety_net_parity.rego` (all 42 active `cc-safety-net` rules in OPA/Rego v1)
+  - **Capability-based unlock-keys** (v0.2.0) — trusted agents present a per-rule salted HMAC key; TS-side post-eval filter demotes matching deny reasons.
 - **Engine:** OPA 1.x (lazy-loaded on every dev box)
 - **Scope:** bash command guarding only (see [`docs/locked-decisions.yaml`](docs/locked-decisions.yaml) LD3)
 - **Pi extension:** the thin tool_call adapter lives in a separate future repo (`pi-opa-net-ext`, per OT5) — this package is the engine + library
 
+## Features
+
+- **OPA-backed decisions** — every command evaluated by an [OPA](https://www.openpolicyagent.org/)/Rego policy; 42-rule catalog (full `cc-safety-net` user-rule parity).
+- **Symmetric structured output** — both allow AND deny emit the full `decision-output.v1` schema with `reasons[].rule_id` provenance, fail-mode observability, and parse-confidence surfacing.
+- **Fail-open by default** — never bricks the shell; matches the `pi-safety-net` fork guarantee. `PI_OPA_FAIL_MODE=closed` for fail-closed.
+- **Capability-based unlock-keys** (v0.2.0) — grant trusted agents a per-rule salted HMAC key (long-lived `ll_<16hex>` or TTL `ttl.<exp>.<16hex>`). TS-side post-eval filter demotes matching deny reasons. All-or-nothing multi-rule semantics; every bypass is auditable via `source:'opa-unlocked'`.
+- **Claude Code hook compatible** — exit codes `0 = allow`, `2 = deny`; JSON on stdout.
+- **Pluggable seams** — `SaltResolver` (deploy-local salt now, remote/keychain later) and `AuditSink` (decision-record only now, file/webhook later).
 ## Installation
 
 ### Prerequisites
@@ -47,6 +56,33 @@ bun add pi-opa-net
 
 # run the CLI directly via bun
 bunx pi-opa-net eval "git stash pop"
+```
+
+### For AI Agents (pi / OpenCode / Claude Code / Codex)
+
+Add to your `settings.json`:
+
+```jsonc
+{
+  "packages": ["pi-opa-net"]
+}
+```
+
+Or tell your agent:
+
+```
+Install and configure pi-opa-net by following:
+https://raw.githubusercontent.com/buihongduc132/pi-opa-net/refs/heads/main/README.md
+```
+
+### For pi (git-sourced)
+
+In `settings.json`:
+
+```jsonc
+{
+  "packages": ["https://github.com/buihongduc132/pi-opa-net"]
+}
 ```
 
 ## Usage
@@ -204,6 +240,8 @@ This repo also ships a Cupcake-format OPA/Rego policy at `.cupcake/policies/clau
 - [`pi-safety-net`](https://www.npmjs.com/package/pi-safety-net) — the fail-open fork of cc-safety-net (Path A: non-pi agents). pi-opa-net is Path B (OPA-backed, structured output).
 - [`cc-safety-net`](https://www.npmjs.com/package/cc-safety-net) — upstream Claude Code safety net.
 
-## License
-
 MIT © [buihongduc132](https://github.com/buihongduc132)
+
+## Repository
+
+**GitHub**: [buihongduc132/pi-opa-net](https://github.com/buihongduc132/pi-opa-net)

@@ -5,6 +5,41 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-20
+
+### Added
+
+- **Capability-based unlock-keys** (`src/unlock/`) — trusted agents present a per-rule salted HMAC key (long-lived `ll_<16hex>` or TTL `ttl.<exp>.<16hex>`); the TS-side post-eval filter demotes matching deny reasons. Schema stays v1 (additive). Policy file `safety.rego` is unchanged.
+- **`unlock-key` CLI subcommand** — `pi-opa-net unlock-key <rule_id> [--ttl <sec>]` mints keys; `--list` enumerates catalog rule_ids. Refuses unknown rule_ids and the god-key `PIOPANET_UNLOCK_ALL`.
+- **Three delivery channels** — `PIOPANET_UNLOCK_KEYS` env (comma-separated), `--unlock <key>` (repeatable), `--unlock-stdin` (requires positional command arg).
+- **Salt seam** (`SaltResolver`) — deploy-local `~/.pi-opa-net/salt` with auto-gen (atomic `wx`, mode 0o600), env override (`PIOPANET_UNLOCK_SALT` literal, `PIOPANET_UNLOCK_SALT_FILE` path), warn on world-readable. Interface for future remote/keychain resolver.
+- **Audit seam** (`AuditSink` + `NoOpSink`) — decision record is the sole audit surface in v1. Interface for future `FileAppendSink`/`WebhookSink`.
+- **All-or-nothing multi-rule semantics** — allow ⟺ every `severity:block` reason has a matching valid key. Partial bypass forbidden; `metadata.unlock_blocked_count` records remaining blockers.
+- **Three new schema sources** — `'opa-unlocked'` (legitimate bypass), `'fail-open-keyless'` (OPA down + keys present, auditable degradation), `'unlock-filter-error'` (filter crash falls back to un-filtered decision, never allows-by-accident).
+- **Cache poisoning guard** — when unlock keys present, `cacheTtlMs` forced to 0 regardless of `PI_OPA_CACHE_TTL_MS`.
+- **Decision-output.v1 schema (additive)** — `reasons[]` gains optional `bypassed`, `unlock_key_id` (first 8 hex only — full key NEVER logged), `unlock_key_type`, `unlock_expires_at`, `unlock_status`; `metadata` gains `unlock_count`, `unlock_blocked_count`, `unlock_agent`. `additionalProperties:false` preserved everywhere.
+- **OpenSpec change** at `openspec/changes/rule-unlock-keys/` — proposal, design (D1–D11), spec (REQ-001..018 + 9 scenarios), tasks.
+- **109 new tests** (304 total pass) covering key derivation, parser, verifier, filter, salt resolver, audit sink, decision builder integration, CLI, schema, and e2e flow. Typecheck + lint clean.
+
+### Decisions (locked, immutable)
+
+- **LD-L1**: per-rule granularity (one rule = one key, no per-command)
+- **LD-L2**: no god-key (refuse `PIOPANET_UNLOCK_ALL`)
+- **LD-L3**: two lifetimes (LL + TTL) via self-describing prefix
+- **LD-L4**: delivery = ENV + `--unlock` + `--unlock-stdin`
+- **LD-L6**: TS-side post-eval filter (keys never enter OPA input/trace)
+- **LD-Y1/Y2**: deploy-local salt + NoOp audit (YAGNI seams for future)
+- **LD-G1**: fail-open+keys → `source:fail-open-keyless`
+- **LD-G2**: `--unlock-stdin` requires positional command
+- **LD-G3**: `cacheTtlMs` forced 0 when keys present
+- **LD-G6**: all-or-nothing multi-rule semantics
+- **LD-G8**: filter crash → fall back to un-filtered decision
+
+### Verifier-loop
+
+- Pre-merge: jewilo 2/2 APPROVE, hash `072026-c604475a` (fullDigest `c604475a...`).
+- Post-merge: jewilo-dev with rag-quick model 2/2 APPROVE, hash `072026-7291243b`.
+
 ## [Unreleased]
 
 ### Added
