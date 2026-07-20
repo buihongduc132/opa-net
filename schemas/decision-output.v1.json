@@ -29,8 +29,8 @@
 
     "source": {
       "type": "string",
-      "enum": ["opa", "fail-open", "fail-closed", "cached"],
-      "description": "Where the decision came from. opa=live OPA eval; fail-open=OPA unreachable, defaulted allow (see [OT2]); fail-closed=OPA unreachable, defaulted deny; cached=replay of prior decision for identical input within TTL."
+      "enum": ["opa", "fail-open", "fail-closed", "cached", "opa-unlocked", "fail-open-keyless", "unlock-filter-error"],
+      "description": "Where the decision came from. opa=live OPA eval; fail-open=OPA unreachable, defaulted allow (see [OT2]); fail-closed=OPA unreachable, defaulted deny; cached=replay of prior decision for identical input within TTL; opa-unlocked=OPA denied but all blocking rules bypassed via valid unlock keys; fail-open-keyless=OPA unreachable AND unlock keys present (degradation, not legitimate bypass); unlock-filter-error=unlock filter crashed, fell back to engine verdict."
     },
 
     "reasons": {
@@ -102,6 +102,30 @@
           "type": "string",
           "enum": ["block", "warn", "info"],
           "description": "Reserved for v2 tiered outcomes. Today always 'block'. Lets future prompt_user/log_only rules coexist with hard blocks."
+        },
+        "bypassed": {
+          "type": "boolean",
+          "description": "True when this deny reason was bypassed by a valid unlock key."
+        },
+        "unlock_key_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}$",
+          "description": "First 8 hex of the unlock key mac (truncated — full key MUST NEVER appear)."
+        },
+        "unlock_key_type": {
+          "type": "string",
+          "enum": ["ll", "ttl"],
+          "description": "Type of unlock key used to bypass this reason."
+        },
+        "unlock_expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 expiry timestamp (TTL keys only)."
+        },
+        "unlock_status": {
+          "type": "string",
+          "enum": ["valid", "expired"],
+          "description": "Status of the unlock key attempt for this reason."
         }
       }
     },
@@ -166,6 +190,20 @@
         "session_id": {
           "type": "string",
           "description": "Calling agent's session ID if available (pi session, claude session, etc.). Empty string if not provided."
+        },
+        "unlock_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of deny reasons bypassed by valid unlock keys."
+        },
+        "unlock_blocked_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of deny reasons still blocking after unlock attempt (all-or-nothing semantics)."
+        },
+        "unlock_agent": {
+          "type": "string",
+          "description": "Agent identifier that presented the unlock keys."
         }
       }
     }
