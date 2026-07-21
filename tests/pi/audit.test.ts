@@ -17,7 +17,12 @@ describe('pi-opa-net audit bridge', () => {
         decision: 'deny',
         source: 'opa',
         reasons: [
-          { rule_id: 'block-git-stash-mutations', message: 'stash', family: 'git', severity: 'block' },
+          {
+            rule_id: 'block-git-stash-mutations',
+            message: 'stash',
+            family: 'git',
+            severity: 'block',
+          },
         ],
         input: { raw: 'git stash pop' },
         evaluated_at: '2026-07-21T14:00:00.000Z',

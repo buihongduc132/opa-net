@@ -8,12 +8,10 @@
  * Skipped when OPA binary is absent (mirrors e2e.test.ts gating pattern).
  */
 import { describe, expect, it } from 'bun:test';
-import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // Gate on OPA availability (same convention as tests/e2e/e2e.test.ts).
 const OPA_BIN = process.env.OPA_BIN ?? '/home/bhd/.local/share/mise/installs/opa/0.68.0/bin/opa';
@@ -37,10 +35,14 @@ async function runEval(command: string): Promise<{
     const child = spawn('bun', [binPath, 'eval', command, '--json'], {
       env: { ...process.env, OPA_BIN },
     });
-    let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d) => (stdout += d.toString()));
-    child.stderr.on('data', (d) => (stderr += d.toString()));
+    let stdout = '';
+    child.stdout.on('data', (d) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d.toString();
+    });
     child.on('error', reject);
     child.on('close', (code) => {
       try {
@@ -91,15 +93,19 @@ describe.if(OPA_AVAILABLE)('pi-opa-net extension e2e (real subprocess + OPA)', (
         env: { ...process.env, OPA_BIN },
       });
       let out = '';
-      child.stdout.on('data', (d) => (out += d.toString()));
-      child.stderr.on('data', (d) => (out += d.toString()));
+      child.stdout.on('data', (d) => {
+        out += d.toString();
+      });
+      child.stderr.on('data', (d) => {
+        out += d.toString();
+      });
       child.on('error', reject);
       child.on('close', () => accept(out.trim()));
     });
 
     expect(keyResult.length).toBeGreaterThan(0);
     // Now eval the command WITH the key → engine must allow.
-    const { exitCode, json } = await runEval(`__ignored_${shaShort(keyResult)}__`);
+    const { json } = await runEval(`__ignored_${shaShort(keyResult)}__`);
     // We don't pass --unlock here in RED; just assert key mint works.
     // GREEN will exercise the full unlocked path through the adapter.
     expect(typeof json).toBe('object');

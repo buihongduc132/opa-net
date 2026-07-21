@@ -128,8 +128,7 @@ describe('pi-opa-net tool_call handler', () => {
 
   it('blocks dangerous bash commands (rm -rf .) and surfaces rule_id', async () => {
     const ctx = piContext(process.cwd(), {
-      opaNetEvalCommand: async () =>
-        denyDecision('block-rm-rf-pwd', 'rm', 'rm -rf .'),
+      opaNetEvalCommand: async () => denyDecision('block-rm-rf-pwd', 'rm', 'rm -rf .'),
     });
     const result = await handlePiToolCall(bashToolCall('rm -rf .'), ctx);
     expect(result?.block).toBe(true);
@@ -244,8 +243,7 @@ describe('pi-opa-net tool_call handler', () => {
 
   it('unlock-key passthrough: source=opa-unlocked → returns undefined', async () => {
     const ctx = piContext(process.cwd(), {
-      opaNetEvalCommand: async () =>
-        allowDecision('git stash pop', 'opa-unlocked'),
+      opaNetEvalCommand: async () => allowDecision('git stash pop', 'opa-unlocked'),
     });
     const result = await handlePiToolCall(bashToolCall('git stash pop'), ctx);
     expect(result).toBeUndefined();
