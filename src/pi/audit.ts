@@ -1,4 +1,20 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { DecisionOutput } from '../output/DecisionBuilder.ts';
+
+/**
+ * Redact common secret patterns from a command string before audit.
+ * - Bearer tokens / Authorization headers
+ * - API keys (sk-... long hex/alnum)
+ */
+export function redactSecrets(text: string): string {
+  let out = text;
+  // Authorization: Bearer <token>
+  out = out.replace(/(Bearer\s+)([A-Za-z0-9._\-]+)/gi, '$1[REDACTED]');
+  // Generic sk-<token> (Stripe/Anthropic/etc API keys)
+  out = out.replace(/\bsk-[A-Za-z0-9_\-]{6,}/g, 'sk-[REDACTED]');
+  return out;
+}
 
 /**
  * Audit sink bridge — writes one JSONL line per decision.
@@ -28,20 +44,6 @@ interface AuditEntry {
   evaluated_at: string;
 }
 
-/**
- * Redact common secret patterns from a command string before audit.
- * - Bearer tokens / Authorization headers
- * - API keys (sk-... long hex/alnum)
- */
-export function redactSecrets(text: string): string {
-  let out = text;
-  // Authorization: Bearer <token>
-  out = out.replace(/(Bearer\s+)([A-Za-z0-9._\-]+)/gi, '$1[REDACTED]');
-  // Generic sk-<token> (Stripe/Anthropic/etc API keys)
-  out = out.replace(/\bsk-[A-Za-z0-9_\-]{6,}/g, 'sk-[REDACTED]');
-  return out;
-}
-
 export async function writeAuditEntry(input: WriteAuditEntryInput): Promise<void> {
   if (!input.sessionId) return;
 
@@ -55,4 +57,25 @@ export async function writeAuditEntry(input: WriteAuditEntryInput): Promise<void
   };
 
   await input.auditSink.write(entry);
+}
+
+/**
+ * Default filesystem audit sink — appends JSONL to `${cwd}/.pi-opa-net/audit/${decision_id}.jsonl`.
+ * Production wires this when ctx.auditSink is not injected.
+ */
+export function createFilesystemAuditSink(cwd: string): AuditSink {
+  const auditDir = resolve(cwd, '.pi-opa-net', 'audit');
+  return {
+    write: async (entry: unknown) => {
+      try {
+        mkdirSync(auditDir, { recursive: true });
+        const decisionId = (entry as { decision_id?: string }).decision_id ?? 'unknown';
+        const logPath = resolve(auditDir, `${decisionId}.jsonl`);
+        appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
+      } catch {
+        // Audit write failure is non-fatal — log to stderr and continue.
+        console.error('[pi-opa-net] audit write failed, continuing without audit');
+      }
+    },
+  };
 }

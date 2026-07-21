@@ -1,5 +1,8 @@
+import { spawn } from 'node:child_process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { DecisionOutput } from '../output/DecisionBuilder.ts';
-import { type AuditSink, writeAuditEntry } from './audit.ts';
+import { type AuditSink, createFilesystemAuditSink, writeAuditEntry } from './audit.ts';
 
 /** Fail-closed block reason — mirrors pi-safety-net's REASON_SAFETY_NET_FAILED_CLOSED. */
 export const REASON_OPA_NET_FAILED_CLOSED =
@@ -62,6 +65,49 @@ function isStrictMode(): boolean {
   return process.env.PIOPANET_STRICT === '1';
 }
 
+/**
+ * Default subprocess eval — spawns `bin/pi-opa-net.js eval "<cmd>" --json`
+ * and parses stdout as DecisionOutput. This is the production bridge:
+ * without this, the handler has no way to evaluate commands.
+ *
+ * Mirrors pi-safety-net's `?? analyzeCommand` default.
+ */
+async function defaultEvalCommand(command: string, opts?: EvalOpts): Promise<DecisionOutput> {
+  const binPath = resolve(fileURLToPath(import.meta.url), '../../../bin/pi-opa-net.js');
+  const cwd = opts?.cwd ?? process.cwd();
+
+  return new Promise((accept, reject) => {
+    const child = spawn('bun', [binPath, 'eval', command, '--json'], {
+      cwd,
+      env: opts?.env ?? process.env,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
+    child.on('error', reject);
+    child.on('close', (code: number | null) => {
+      if (code !== 0 && code !== 2) {
+        // Exit code 0 = allow, 2 = deny. Anything else = subprocess error.
+        reject(new Error(`pi-opa-net eval exited ${code}: ${stderr}`));
+        return;
+      }
+      try {
+        const decision = JSON.parse(stdout.trim()) as DecisionOutput;
+        accept(decision);
+      } catch (err) {
+        reject(
+          new Error(`pi-opa-net eval non-JSON stdout: ${stdout.slice(0, 200)}\nstderr: ${stderr}`),
+        );
+      }
+    });
+  });
+}
+
 /** @internal — exported for test coverage */
 export async function handlePiToolCall(
   event: unknown,
@@ -76,17 +122,12 @@ export async function handlePiToolCall(
 
   const { command, cwd } = shellToolCall;
 
-  // If no eval function injected, we cannot evaluate — fail-open (or fail-closed in strict).
-  if (!ctx.opaNetEvalCommand) {
-    if (isStrictMode()) {
-      return blockPiToolCall(REASON_OPA_NET_FAILED_CLOSED, command);
-    }
-    return undefined;
-  }
+  // Use injected eval OR default subprocess eval.
+  const evalCommand = ctx.opaNetEvalCommand ?? defaultEvalCommand;
 
   let decision: DecisionOutput;
   try {
-    decision = await ctx.opaNetEvalCommand(command, { cwd });
+    decision = await evalCommand(command, { cwd });
   } catch {
     // Fork fail-open default: do not brick the agent on eval errors.
     if (isStrictMode()) {
@@ -108,11 +149,13 @@ export async function handlePiToolCall(
 
   // Deny + block: translate + audit + block.
   if (decision.decision === 'deny' && decision.action === 'block') {
-    if (ctx.auditSink && ctx.sessionManager.getSessionFile()) {
+    const sessionId = ctx.sessionManager.getSessionFile();
+    if (sessionId) {
+      const auditSink = ctx.auditSink ?? createFilesystemAuditSink(cwd);
       await writeAuditEntry({
-        sessionId: ctx.sessionManager.getSessionFile(),
+        sessionId,
         decision,
-        auditSink: ctx.auditSink,
+        auditSink,
       });
     }
     return blockPiToolCall(formatBlockReason(decision), command);
@@ -137,13 +180,6 @@ function getPiShellToolCall(event: unknown, ctx: PiToolCallContext): PiShellTool
   const cwdInput = adapter.cwdField ? toolCall.input[adapter.cwdField] : undefined;
   const cwd = typeof cwdInput === 'string' ? resolve(ctx.cwd, cwdInput) : ctx.cwd;
   return { command, cwd };
-}
-
-function resolve(base: string, target: string): string {
-  // Inline resolve to avoid node:path overhead + cross-platform concern.
-  if (!target) return base;
-  if (target.startsWith('/')) return target;
-  return `${base.replace(/\/$/, '')}/${target}`;
 }
 
 function formatBlockReason(decision: DecisionOutput): string {

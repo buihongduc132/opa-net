@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // Gate on OPA availability (same convention as tests/e2e/e2e.test.ts).
-const OPA_BIN = process.env.OPA_BIN ?? '/home/bhd/.local/share/mise/installs/opa/0.68.0/bin/opa';
+const OPA_BIN = process.env.OPA_BIN ?? '/home/bhd/.local/share/mise/installs/opa/1.18.2/opa';
 const OPA_AVAILABLE = existsSync(OPA_BIN);
 
 function shaShort(s: string): string {
@@ -112,10 +112,22 @@ describe.if(OPA_AVAILABLE)('pi-opa-net extension e2e (real subprocess + OPA)', (
   });
 
   it('real pi session dispatch simulation: registered handler blocks rm -rf', async () => {
-    // Simulate pi's dispatch: register handler on a fake pi, fire tool_call.
-    // RED: import fails. GREEN: handler runs, invokes real subprocess, blocks.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const piOpaNet = await import('../../src/pi/index');
-    expect(typeof piOpaNet.default).toBe('function');
+    // Simulate pi's dispatch: call handlePiToolCall directly with a bash event.
+    // This exercises the real subprocess eval (defaultEvalCommand) without injection.
+    const { handlePiToolCall } = await import('../../src/pi/tool-call');
+    const bashEvent = {
+      type: 'tool_call',
+      toolCallId: 'test-call-1',
+      toolName: 'bash',
+      input: { command: 'git stash pop' },
+    };
+    const ctx = {
+      cwd: process.cwd(),
+      sessionManager: { getSessionFile: () => undefined },
+    };
+    const result = await handlePiToolCall(bashEvent, ctx);
+    expect(result).toBeDefined();
+    expect((result as { block?: boolean }).block).toBe(true);
+    expect((result as { reason?: string }).reason).toContain('BLOCKED');
   });
 });
