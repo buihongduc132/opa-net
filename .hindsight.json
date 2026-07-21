@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "bankId": "pi-opa-net",
+  "bankId": "opa-net",
   "provider": "local",
-  "repoSlug": "buihongduc132/pi-opa-net",
+  "repoSlug": "buihongduc132/opa-net",
   "baseUrl": "http://100.114.135.99:24300",
   "bankStrategy": "per-repo",
   "discoveredAt": "2026-07-08T18:18:13Z",
-  "updatedAt": "2026-07-08T18:18:13Z"
+  "updatedAt": "2026-07-21T05:49:00Z"
 }
