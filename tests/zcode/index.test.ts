@@ -39,17 +39,17 @@ describe('zcode-opa-net extension entry point', () => {
     }
   });
 
-  it('honors ZCODE_OPA_NET_HOME as a PIOPANET_HOME alias when set', () => {
+  it('honors ZCODE_OPA_NET_HOME as a PIOPANET_HOME alias when set', async () => {
     delete process.env.PIOPANET_HOME;
     process.env.ZCODE_OPA_NET_HOME = '/tmp/zcode-opa-net-home-alias';
     try {
-      // runHookScript triggers auto-discovery on first call.
-      // We can't easily call it without stdin, so we just check the env is set
-      // by re-importing. The actual behavior is tested in e2e.
-      const home: string | undefined = process.env.PIOPANET_HOME;
-      // The alias should propagate when runHookScript is invoked.
-      // For unit test, we verify the alias env is readable.
-      expect(process.env.ZCODE_OPA_NET_HOME).toBe('/tmp/zcode-opa-net-home-alias');
+      // autoDiscoverOpaNetHome is exported — call it directly to verify the
+      // alias propagates to PIOPANET_HOME.
+      const { autoDiscoverOpaNetHome } = await import('../../src/zcode/index');
+      autoDiscoverOpaNetHome();
+      // When the ZCode-canonical alias is set, PIOPANET_HOME must mirror it
+      // so the shared engine picks up the same rule/policy home.
+      expect(process.env.PIOPANET_HOME as string | undefined).toBe('/tmp/zcode-opa-net-home-alias');
     } finally {
       delete process.env.ZCODE_OPA_NET_HOME;
       delete process.env.PIOPANET_HOME;

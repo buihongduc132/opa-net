@@ -30,8 +30,8 @@
  * real subprocess — `opaNetEvalCommand` is injected per-case.
  */
 import { describe, expect, it } from 'bun:test';
-import { handleZcodeToolCall } from '../../src/zcode/tool-call';
 import type { DecisionOutput } from '../../src/output/DecisionBuilder';
+import { handleZcodeToolCall } from '../../src/zcode/tool-call';
 
 type ZcodeCtx = Parameters<typeof handleZcodeToolCall>[1];
 
