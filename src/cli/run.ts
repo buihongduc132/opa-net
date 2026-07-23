@@ -1,8 +1,14 @@
 import { resolve } from 'node:path';
-import { configFromEnv } from '../config/Config.ts';
-import { OpaCliEngine, probeOpaVersion } from '../engine/index.ts';
+import { type EngineConfig, configFromEnv } from '../config/Config.ts';
+import {
+  type DecisionEngine,
+  type EngineDecision,
+  OpaCliEngine,
+  probeOpaVersion,
+} from '../engine/index.ts';
 import { DecisionBuilder, type DecisionOutput } from '../output/DecisionBuilder.ts';
 import { OutputFormatter, validateDecision } from '../output/OutputFormatter.ts';
+import type { CommandParser, ParsedCommand } from '../parser/index.ts';
 import { CommandParserCoordinator } from '../parser/index.ts';
 import { RULES, RuleRegistry } from '../rules/index.ts';
 import { SaltResolver } from '../unlock/SaltResolver.ts';
@@ -63,17 +69,106 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
   const hasKeys = unlockKeys.length > 0;
 
   const parser = new CommandParserCoordinator();
-  const parsed = parser.parse(raw);
-
   const opaVersion = await probeOpaVersion(config.opaBinary ?? 'opa');
   const engine = new OpaCliEngine(config, opaVersion);
-  const engineDecision = await engine.evaluate(parsed);
 
   const builder = new DecisionBuilder({
     config,
     registry: new RuleRegistry(RULES),
     digest: engine.rulebookDigest(),
   });
+
+  // Compound commands (joined by ';'): split and evaluate EACH segment.
+  // If ANY segment is denied, the whole command is denied. This catches
+  // env-prefixed commands like `export FOO=bar; git stash pop` where
+  // pi-bash-guard prepends env exports to every bash invocation.
+  const output = await evaluatePossiblyCompound(raw, {
+    parser,
+    engine,
+    config,
+    builder,
+    unlockKeys,
+    hasKeys,
+  });
+
+  // Hard internal gate: the record MUST validate against the schema before emit.
+  validateDecision(output);
+
+  const formatter = new OutputFormatter();
+  const { stdout, exitCode } = formatter.format(output, opts.mode);
+  return { stdout, exitCode };
+}
+
+/**
+ * Evaluate a possibly-compound raw command string. If it contains ';',
+ * evaluate each segment and return deny if ANY segment is denied.
+ * Single commands (no ';') take the existing fast path unchanged.
+ */
+async function evaluatePossiblyCompound(
+  raw: string,
+  deps: {
+    parser: CommandParser;
+    engine: DecisionEngine;
+    config: EngineConfig;
+    builder: DecisionBuilder;
+    unlockKeys: readonly string[];
+    hasKeys: boolean;
+  },
+): Promise<DecisionOutput> {
+  const { parser, engine, config, builder, unlockKeys, hasKeys } = deps;
+
+  // Split on ';' but only treat as compound if more than one non-empty segment.
+  const segments = raw
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  if (segments.length <= 1) {
+    // Single command path — unchanged behavior.
+    const parsed = parser.parse(raw);
+    const engineDecision = await engine.evaluate(parsed);
+    return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys });
+  }
+
+  // Compound path: evaluate each segment, deny wins.
+  let denyOutput: DecisionOutput | undefined;
+  for (const segment of segments) {
+    const parsed = parser.parse(segment);
+    const engineDecision = await engine.evaluate(parsed);
+    const output = buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys });
+    if (output.decision === 'deny' && output.action === 'block') {
+      denyOutput = output;
+      break; // first deny wins
+    }
+  }
+
+  if (denyOutput) {
+    return denyOutput;
+  }
+
+  // All segments allowed — return an allow decision based on the first segment.
+  const firstParsed = parser.parse(segments[0] ?? '');
+  const firstEngineDecision = await engine.evaluate(firstParsed);
+  return buildDecision(firstParsed, firstEngineDecision, {
+    config,
+    builder,
+    unlockKeys,
+    hasKeys,
+  });
+}
+
+/** Build a DecisionOutput from a parsed command + engine decision, applying unlock keys. */
+function buildDecision(
+  parsed: ParsedCommand,
+  engineDecision: EngineDecision,
+  deps: {
+    config: EngineConfig;
+    builder: DecisionBuilder;
+    unlockKeys: readonly string[];
+    hasKeys: boolean;
+  },
+): DecisionOutput {
+  const { config, builder, unlockKeys, hasKeys } = deps;
 
   let output: DecisionOutput;
 
@@ -111,12 +206,7 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
     }
   }
 
-  // Hard internal gate: the record MUST validate against the schema before emit.
-  validateDecision(output);
-
-  const formatter = new OutputFormatter();
-  const { stdout, exitCode } = formatter.format(output, opts.mode);
-  return { stdout, exitCode };
+  return output;
 }
 
 function resolveRaw(opts: CliOptions): string {

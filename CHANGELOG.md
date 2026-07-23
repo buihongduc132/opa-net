@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-07-23
+
+### Fixed
+
+- CRITICAL: compound commands (e.g. `export FOO=bar; git stash pop`) now have EACH segment evaluated against the OPA policy. Previously the parser only saw the first command (`export`), which is always allowed, so dangerous commands after `;` were silently evaluated. This was the root cause of pi-opa-net appearing to never block commands in live pi sessions (pi-bash-guard prepends env exports to every command).
+
 ## [0.3.1] - 2026-07-23
 
 ### Fixed
