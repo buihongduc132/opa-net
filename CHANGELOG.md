@@ -5,7 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-07-24
+
+### Added
+
+- **Layer A4 — runtime self-check** (`src/pi/runtime-self-check.ts`): `runSelfCheck()` verifies at startup that (a) the `tool_call` hook was registered, (b) `package.json` declares a non-empty `pi.extensions`, and (c) the first extension entry default-exports a function. Catches a C1-class regression (missing manifest) at startup instead of at deploy-time. Exports `runSelfCheck()`, `markHookRegistered()`, `isHookRegistered()`. The extension loader (`src/pi/index.ts`) now calls `markHookRegistered()` immediately after `registerToolCallEvent(pi)`.
+- **Layer A3 — CLI contract tests** (`tests/e2e/cli-contract.test.ts`): guards the C2-class bug (compound-command parsing) at the CLI boundary. Covers both env-prefix+semicolon (`export FOO=bar; <cmd>`) and plain commands; deny cases (`git stash pop`, `git reset --hard`) and allow cases (`git status`, `ls -la`). Skips gracefully if OPA or bun is missing.
+- **Layer A1 — pi-session E2E smoke gate** (`tests/e2e/pi-session-smoke.test.ts`): release gate that spawns live `pi -p` sessions to confirm real-world blocking behavior. Verifies `git stash pop` / `git reset --hard HEAD` produce BLOCKED output and `git status` does not. Skips via `PIOPANET_SKIP_PI_SMOKE=1` or when `pi` is not on PATH.
+
 ## [0.3.2] - 2026-07-23
+
 
 ### Fixed
 
