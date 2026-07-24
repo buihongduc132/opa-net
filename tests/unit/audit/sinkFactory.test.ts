@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import {
-  createAuditSink,
-  parseHeaders,
-} from '../../../src/audit/sinkFactory.ts';
 import { MultiSink } from '../../../src/audit/MultiSink.ts';
+import { createAuditSink, parseHeaders } from '../../../src/audit/sinkFactory.ts';
 
 /**
  * RED tests for the config-driven audit sink factory (0.4.0 ghost port, scout #3).
@@ -48,7 +45,7 @@ describe('sinkFactory.createAuditSink', () => {
     restoreEnv(snap);
   });
 
-  it("OTel disabled (no env) → returns plain filesystem sink (NOT MultiSink)", () => {
+  it('OTel disabled (no env) → returns plain filesystem sink (NOT MultiSink)', () => {
     snap = snapshotEnv();
     for (const k of CLEAN_ENV_KEYS) delete process.env[k];
     const sink = createAuditSink({ cwd: '/tmp' });
@@ -88,7 +85,7 @@ describe('sinkFactory.createAuditSink', () => {
     expect(captured.join('\n')).toContain('PIOPANET_OTEL_ENDPOINT');
   });
 
-  it("env param override takes precedence over process.env", () => {
+  it('env param override takes precedence over process.env', () => {
     snap = snapshotEnv();
     // process.env says enabled, but env param (override) says disabled → plain fs sink.
     process.env.PIOPANET_OTEL_ENABLED = '1';

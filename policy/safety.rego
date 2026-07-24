@@ -317,6 +317,76 @@ deny[msg] if {
     msg := "Removing symlink subdirs in beads/ skill is blocked (rule is misnamed 'allow')."
 }
 
+# block-rm-rf-dangerous-target — guard against `rm -rf` on broad/cwd/system paths.
+# Parser caveat: shell-quote expands globs (`*`, `/*`) and env vars (`$HOME`)
+# during parsing, so those tokens vanish from input.args but survive in input.raw.
+# We therefore check BOTH args (exact targets) and raw (regex fallback).
+
+# Recursive flag: -r | -R | --recursive | combined short cluster containing r/R
+rm_has_recursive(args) if { has_any_arg(args, ["-r", "-R", "--recursive"]) }
+rm_has_recursive(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "r")
+}
+rm_has_recursive(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "R")
+}
+
+# Force flag: -f | --force | combined short cluster containing f
+rm_has_force(args) if { has_any_arg(args, ["-f", "--force"]) }
+rm_has_force(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "f")
+}
+
+# Non-flag target arguments
+rm_targets(args) := [t | some t in args; not startswith(t, "-")]
+
+# Dangerous targets visible in args (parser preserves literal ., .., /, ~, etc.)
+rm_dangerous_arg_targets := ["/", "~", "$HOME", ".", "..", "/home", "/*", "~/*"]
+
+rm_has_dangerous_arg_target(args) if {
+    some t in rm_targets(args)
+    t == rm_dangerous_arg_targets[_]
+}
+
+# Dangerous tokens that disappear from args due to shell expansion (globs, env vars).
+# Matched as standalone words (whitespace or string boundary) in input.raw.
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)/\\*(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)~(/\\*)?(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)\\$HOME(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)/home(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)/(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)\\*(\\s|$)", raw) }
+
+# Args-based deny: dangerous literal target present in args
+deny[msg] if {
+    input.program == "rm"
+    rm_has_recursive(input.args)
+    rm_has_force(input.args)
+    rm_has_dangerous_arg_target(input.args)
+    msg := "rm -rf on dangerous targets (/, ~, ., .., *, /*, $HOME, /home) is blocked. Use specific paths like /tmp/dir or ./subdir."
+}
+
+# Raw-based deny: dangerous glob/env token present in raw (disappeared from args)
+deny[msg] if {
+    input.program == "rm"
+    rm_has_recursive(input.args)
+    rm_has_force(input.args)
+    rm_raw_dangerous_token(input.raw)
+    msg := "rm -rf on dangerous targets (/, ~, ., .., *, /*, $HOME, /home) is blocked. Use specific paths like /tmp/dir or ./subdir."
+}
+
 # ──────────────────────────────────────────────────────────────────
 # GROUP F — gh / glab repo lifecycle
 # ──────────────────────────────────────────────────────────────────
