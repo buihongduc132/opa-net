@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,8 +34,10 @@ function runPiSession(
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((accept, reject) => {
     const cwd = mkdtempSync(join(tmpdir(), 'piopa-smoke-'));
+    const cleanup = () => rmSync(cwd, { recursive: true, force: true });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
+      // Do NOT cleanup here — SIGKILL triggers 'close' which cleans up.
       reject(new Error(`pi session timeout after ${timeoutMs}ms`));
     }, timeoutMs);
 
@@ -53,10 +55,12 @@ function runPiSession(
     });
     child.on('error', (err) => {
       clearTimeout(timer);
+      cleanup();
       reject(err);
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      cleanup();
       accept({ stdout, stderr, exitCode: code });
     });
   });
