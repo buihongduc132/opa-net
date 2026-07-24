@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { markHookRegistered } from './runtime-self-check.ts';
 import { registerToolCallEvent } from './tool-call.ts';
 
 type PiExtensionApi = Parameters<typeof registerToolCallEvent>[0];
@@ -26,6 +27,7 @@ function autoDiscoverOpaNetHome(): void {
 export default function piOpaNetExtension(pi: PiExtensionApi): void {
   autoDiscoverOpaNetHome();
   registerToolCallEvent(pi);
+  markHookRegistered();
 }
 
 // Re-export for direct unit-test access.
