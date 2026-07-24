@@ -56,6 +56,23 @@ The `source` field makes whichever mode fires **observable** per-decision.
 2. Mirror it in `src/rules/catalog.ts` (same message string).
 3. The catalog↔rego parity test enforces zero drift.
 
+## Audit sinks (pi extension)
+
+The pi extension writes audit entries to a filesystem sink by default. To also forward to an OTLP/HTTP collector:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PIOPANET_OTEL_ENABLED` | unset | Set to `1` to enable OTLP forwarding |
+| `PIOPANET_OTEL_ENDPOINT` | unset | Collector URL (required when enabled) |
+| `PIOPANET_OTEL_SERVICE_NAME` | `pi-opa-net` | Service name in OTLP resource |
+| `PIOPANET_OTEL_HEADERS` | unset | Extra headers as `k=v,k2=v2` (avoid secrets) |
+
+When enabled + endpoint set: `MultiSink([filesystem, otlp])`. When enabled but no endpoint: filesystem only + stderr warn.
+
+## Rules
+
+- `block-rm-rf-dangerous-target` — blocks `rm -rf` on `/`, `~`, `.`, `..`, `*`, `/*`, `$HOME`, `/home`. Safe carve-outs: `/tmp/<specific>`, `./<specific>`, named dirs.
+
 ## References
 
 - Schema: [`schemas/decision-output.v1.json`](https://github.com/buihongduc132/pi-opa-net/blob/main/schemas/decision-output.v1.json)

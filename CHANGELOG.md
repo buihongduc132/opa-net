@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-07-24
+
+### Added
+
+- **Reconciled deployed 0.4.0 ghost into repo main.** The deployed production copy (`~/.pi/agent/npm/node_modules/pi-opa-net/`) contained unpublished features (OTLP/HTTP audit sink, MultiSink fan-out, config-driven audit factory, `rm -rf` dangerous-target policy) that had never been committed to git. This release brings the repo source in sync with the deployed binary while preserving the A4 runtime self-check layer (which was inadvertently lost in the unpublished 0.4.0 ghost).
+- **`block-rm-rf-dangerous-target` rule** — blocks `rm -rf` on dangerous targets (`/`, `~`, `.`, `..`, `*`, `/*`, `$HOME`, `/home`). Safe carve-outs preserved: `/tmp/<specific>`, `./<specific>`, named dirs. Rule uses both `args`-based matching AND `raw`-regex fallback (shell-quote expands globs/env-vars away from args).
+
+### Fixed
+
+- **A4 regression restored** — deployed 0.4.0 had silently dropped `markHookRegistered()` and `src/pi/runtime-self-check.ts`; repo main now retains the A4 prevention layer.
+
 ## [0.3.3] - 2026-07-24
 
 ### Added
