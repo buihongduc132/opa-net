@@ -205,6 +205,23 @@ The default `open` matches the [`pi-safety-net`](https://www.npmjs.com/package/p
 | `PI_OPA_HOSTNAME` | `os.hostname()` | metadata.hostname |
 | `PI_OPA_SESSION_ID` | `""` | metadata.session_id |
 
+### Audit sinks (pi extension)
+
+The pi extension writes audit entries to a filesystem sink by default. To also forward to an OTLP/HTTP collector:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PIOPANET_OTEL_ENABLED` | unset | Set to `1` to enable OTLP forwarding |
+| `PIOPANET_OTEL_ENDPOINT` | unset | Collector URL (required when enabled) |
+| `PIOPANET_OTEL_SERVICE_NAME` | `pi-opa-net` | Service name in OTLP resource |
+| `PIOPANET_OTEL_HEADERS` | unset | Extra headers as `k=v,k2=v2` (avoid secrets) |
+
+When enabled + endpoint set: `MultiSink([filesystem, otlp])`. When enabled but no endpoint: filesystem only + stderr warn.
+
+### Rules
+
+- `block-rm-rf-dangerous-target` — blocks `rm -rf` on `/`, `~`, `.`, `..`, `*`, `/*`, `$HOME`, `/home`. Safe carve-outs: `/tmp/<specific>`, `./<specific>`, named dirs.
+
 ## Develop
 
 ```bash

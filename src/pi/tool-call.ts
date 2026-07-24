@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createAuditSink } from '../audit/sinkFactory.ts';
 import type { DecisionOutput } from '../output/DecisionBuilder.ts';
-import { type AuditSink, createFilesystemAuditSink, writeAuditEntry } from './audit.ts';
+import { type AuditSink, writeAuditEntry } from './audit.ts';
 
 /** Fail-closed block reason — mirrors pi-safety-net's REASON_SAFETY_NET_FAILED_CLOSED. */
 export const REASON_OPA_NET_FAILED_CLOSED =
@@ -151,7 +152,7 @@ export async function handlePiToolCall(
   if (decision.decision === 'deny' && decision.action === 'block') {
     const sessionId = ctx.sessionManager.getSessionFile();
     if (sessionId) {
-      const auditSink = ctx.auditSink ?? createFilesystemAuditSink(cwd);
+      const auditSink = ctx.auditSink ?? createAuditSink({ cwd });
       await writeAuditEntry({
         sessionId,
         decision,

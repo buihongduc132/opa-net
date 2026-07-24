@@ -180,6 +180,12 @@ export const RULES: readonly RuleMeta[] = [
     family: 'rm',
     message: "Removing symlink subdirs in beads/ skill is blocked (rule is misnamed 'allow').",
   },
+  {
+    ruleId: 'block-rm-rf-dangerous-target',
+    family: 'rm',
+    message:
+      'rm -rf on dangerous targets (/, ~, ., .., *, /*, $HOME, /home) is blocked. Use specific paths like /tmp/dir or ./subdir.',
+  },
   // ── GROUP F: gh / glab ──
   {
     ruleId: 'block-gh-repo-delete-archive',
