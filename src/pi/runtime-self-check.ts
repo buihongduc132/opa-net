@@ -10,13 +10,17 @@
  * checks stay in lockstep with what pi's loader actually inspects.
  */
 import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 type SelfCheckEntry = { name: string; passed: boolean; message?: string };
 
 type SelfCheckResult = { ok: boolean; checks: SelfCheckEntry[] };
 
-const REPO_ROOT = resolve(import.meta.dir, '../../');
+// Portable across Bun (import.meta.dir) and Node/jiti (no import.meta.dir).
+// Pi's extension loader uses jiti under Node, where import.meta.dir is undefined.
+const __FILENAME = fileURLToPath(import.meta.url);
+const REPO_ROOT = resolve(dirname(__FILENAME), '../../');
 
 let hookRegistered = false;
 

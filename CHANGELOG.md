@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-07-24
+
+### Fixed
+
+- **CRITICAL: A4 self-check crashed pi at extension load time.** `src/pi/runtime-self-check.ts` used `import.meta.dir` (Bun-only API) to compute `REPO_ROOT`. Pi's extension loader uses jiti under Node.js where `import.meta.dir` is `undefined`, causing `path.resolve(undefined, ...)` → `TypeError [ERR_INVALID_ARG_TYPE]: The "paths[0]" argument must be of type string. Received undefined`. The bug was latent in 0.4.1 (A4 never deployed before 0.4.1) and surfaced immediately after publish. Replaced with the portable `fileURLToPath(import.meta.url)` + `dirname()` pattern. Tests pass under both Bun and Node/jiti.
+
 ## [0.4.1] - 2026-07-24
 
 ### Added
