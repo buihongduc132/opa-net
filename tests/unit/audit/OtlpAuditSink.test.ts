@@ -47,6 +47,7 @@ const SAMPLE_DENY = {
   command: 'rm -rf /',
   rule_ids: ['block-rm-rf-dangerous-target'],
   evaluated_at: '2026-07-24T00:00:00Z',
+  pi_opa_net_version: '0.4.0',
 };
 
 const SAMPLE_ALLOW = {
@@ -116,7 +117,7 @@ describe('OtlpAuditSink', () => {
     expect(customAttr?.value?.stringValue).toBe('custom-svc');
   });
 
-  it('logRecord body kvlistValue has keys: decision_id, decision, source, command, rule_ids, evaluated_at', async () => {
+  it('logRecord body kvlistValue has keys: decision_id, decision, source, command, rule_ids, evaluated_at, pi_opa_net_version', async () => {
     const mock = installFetchMock();
     restoreFetch = mock.restore;
     const sink = new OtlpAuditSink({ endpoint: 'http://otel:4318/v1/logs' });
@@ -132,6 +133,7 @@ describe('OtlpAuditSink', () => {
       'command',
       'rule_ids',
       'evaluated_at',
+      'pi_opa_net_version',
     ]);
 
     // rule_ids serialized as arrayValue

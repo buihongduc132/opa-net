@@ -1,0 +1,219 @@
+# Open threads for rule-unlock-keys explore
+status: ongoing
+threads:
+  - id: OT1
+    topic: Capture as openspec change rule-unlock-keys/
+    raised_in: turn4
+    status: resolved
+    resolution: openspec change captured at openspec/changes/rule-unlock-keys/ (proposal.md, design.md, specs/rule-unlock/spec.md, tasks.md, README.md). Implemented on branch rule-unlock-keys, merged to main as commit 5cdd037 (PR #3), published as pi-opa-net@0.2.0 to npm. Verified by jewilo (hash 072026-c604475a) + jewilo-dev with rag-quick model (hash 072026-7291243b).
+    resolved_in: implementation-session-2026-07-20
+    notes: |
+      Originally offered in turn 4 of explore; resolved by full implementation
+      + deploy cycle after explore concluded.
+
+  - id: OT2
+    topic: Enumerate ospx manifest steps 11-70
+    raised_in: turn2
+    status: open
+    resolution: ""
+    resolved_in: ""
+    notes: |
+      ospx family manifest (~/.pi/agent/cmd-family/ospx.yml) shows "Step 10/70" —
+      assistant lacks direct access to enumerate steps 11-70. Offered to read the
+      manifest; user has not yet responded.
+
+  # Gotcha-coverage additions (step 20)
+
+  - id: OT3
+    topic: "CRITICAL: fail-open = keyless universal bypass on OPA outage"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G1]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 5. When OPA is down (failMode='open'), unlock filter has nothing
+      to filter → command allowed with NO source:opa-unlocked audit. Attacker who
+      induces OPA unavailability bypasses EVERY rule lock without any key.
+      Mitigation: fail-closed when keys present, or source:'fail-open-keyless'.
+
+  - id: OT4
+    topic: "CRITICAL: --unlock-stdin double-reads fd 0 vs command-via-stdin"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G2]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 5. src/cli/run.ts resolveRaw() ALREADY reads stdin when no
+      positional command given. --unlock-stdin ALSO reads stdin. Cannot read fd 0
+      twice. Implementation blocker.
+      Mitigation: --unlock-stdin requires positional command arg, OR keys from fd 3,
+      OR --command-stdin vs --key-stdin flags.
+
+  - id: OT5
+    topic: "CRITICAL: cache poisoning — cache key must include unlock-set"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G3]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 5. src/config/Config.ts declares cacheTtlMs. When caching enabled,
+      cache keyed on parsed command. Agent A runs cmd WITH key → allow → CACHED.
+      Agent B runs same cmd WITHOUT key → cache HIT → allow with NO key.
+      Mitigation: cache key includes hash of unlock-key-set, OR force cacheTtlMs=0
+      when keys present.
+
+  - id: OT6
+    topic: "CRITICAL: gcloud/bq rules un-unlockable (no canonical rule_id)"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G4]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 4. src/rules/catalog.ts has NO entries for gcloud/bq.
+      RuleRegistry.lookup synthesizes custom:<hash(message)> — not enumerable by
+      unlock-key --list, different per verb, not what user can mint.
+      Mitigation: register gcloud/bq as discrete RuleMeta entries, OR scope unlock
+      to catalog-registered rules and document gcloud/bq as out-of-scope.
+
+  - id: OT7
+    topic: "CRITICAL: schema additionalProperties:false blocks all additive fields"
+    raised_in: turn4a
+    status: resolved
+    resolution: Implementation task (not a design decision). Schema update is part of ship surface — already decided in turn4a.
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch B Rank 4. Current schema has additionalProperties:false at 4 levels.
+      Proposed changes add source:'opa-unlocked', reasons[].bypassed, unlock_key_id,
+      unlock_key_type, unlock_expires_at, unlock_status, metadata.unlock_count,
+      unlock_agent. EVERY ONE requires schema change.
+      Mitigation: schema update is part of ship surface — not optional.
+
+  - id: OT8
+    topic: "CRITICAL: DecisionBuilder.source type doesn't include 'opa-unlocked'"
+    raised_in: turn4a
+    status: resolved
+    resolution: Implementation task (not a design decision). Type change is part of ship surface — already decided in turn4a.
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch B Rank 4. DecisionOutput.source typed as 'opa'|'fail-open'|'fail-closed'|'cached'.
+      Adding 'opa-unlocked' requires changing TypeScript type AND EngineDecision.source
+      type. Unlock filter doesn't change engine source — it changes OUTPUT source.
+      Mitigation: UnlockFilter returns modified EngineDecision with source:'opa-unlocked'
+      when any rule bypassed, OR DecisionBuilder accepts unlock result and overrides.
+
+  - id: OT9
+    topic: "IMPORTANT: no LL key revocation — leaked ll_ key valid forever"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G5]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 4. LL keys have NO embedded expiry and NO server-side revocation list.
+      Leaked ll_<16hex> valid until salt rotates — and rotating salt is expensive and
+      kills ALL keys. No way to revoke a SINGLE compromised LL key.
+      Mitigation: accept salt-rotation-only (documented) OR add minimal revocation list
+      seam (~/.pi-opa-net/revoked.txt).
+
+  - id: OT10
+    topic: "IMPORTANT: TTL replayable-within-window (not single-use)"
+    raised_in: turn2a
+    status: resolved
+    resolution: Documentation task (not a design decision). Already decided in turn2a: "document clearly: TTL = time-bounded unlimited use; no single-use mode."
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 4. ttl.<exp>.<mac> valid for EVERY invocation until exp.
+      Dropping K3 removed only single-use primitive. --ttl 3600 is "unlock this rule
+      for 1 hour of UNLIMITED use," not "unlock one command."
+      Mitigation: document clearly: "TTL = time-bounded unlimited use; no single-use mode."
+
+  - id: OT11
+    topic: "IMPORTANT: multiple rules fire on one command → need ALL keys"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G6]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 5. Single command can be denied by MORE than one rule.
+      K1 per-rule means each fired rule needs its OWN key. If agent holds key for
+      rule A but not rule B, command stays blocked. Schema delta has no way to express
+      "1 of 2 reasons bypassed."
+      Mitigation: define filter semantics as "allow ⟺ every severity:block reason has
+      matching valid key." Add reasons[].bypassed per-entry + metadata.unlock_blocked_count.
+
+  - id: OT12
+    topic: "IMPORTANT: rule_id mutability invalidates all minted keys"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G7]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 4. Key = HMAC(salt, rule_id). rule_id treated as immutable, but
+      catalog ALREADY documents drift: block-rm-bd-sub-skills and block-rm-beads-subdirs
+      flagged "rule is misnamed 'allow'". Routine rename silently invalidates every key.
+      Mitigation: treat rule_id as versioned identifier (forbid renames in CONTRIBUTING,
+      OR carry key_aliases:[...] field).
+
+  - id: OT13
+    topic: "IMPORTANT: clock manipulation makes TTL keys effectively permanent"
+    raised_in: turn2a
+    status: resolved
+    resolution: Documentation task (not a design decision). Already decided in turn2a: "state threat-model limit."
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 4. TTL verification is now > exp where now = Date.now() on verifier's
+      process clock. Verifier that freezes/rewinds clock keeps now < exp forever →
+      TTL key becomes permanently valid. "No server-side state" removes only anchor.
+      Mitigation: state threat-model limit: "TTL relies on verifier's clock being honest;
+      treat TTL as convenience, not enforcement, against compromised agent."
+
+  - id: OT14
+    topic: "IMPORTANT: TS-filter crash has NO fail-mode"
+    raised_in: turn2a
+    status: resolved
+    resolution: auto-decided per [LD-G8]
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch A Rank 4. TS-side unlock filter has NO equivalent fail-mode. If filter
+      throws, whole runCli pipeline throws → bin wrapper behavior undefined.
+      Mitigation: wrap unlock filter in try/catch: on filter error, fall back to
+      UN-FILTERED engine decision (if OPA said deny, stay deny; never allow-by-accident).
+
+  - id: OT15
+    topic: "IMPORTANT: salt file race on first-use auto-generation"
+    raised_in: turn4a
+    status: resolved
+    resolution: Implementation detail (not a design decision). Already decided in turn4a: "use O_CREAT|O_EXCL."
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch B Rank 3. Two concurrent pi-opa-net unlock-key invocations on first run
+      both detect missing salt → both generate → last-write-wins. Keys minted against
+      first salt become invalid once second overwrites.
+      Mitigation: use O_CREAT|O_EXCL (or wx flag) for salt file creation. Loser re-reads
+      winner's file. Or: generate into temp file, rename() atomically.
+
+  - id: OT16
+    topic: "IMPORTANT: salt file permissions default to world-readable"
+    raised_in: turn4a
+    status: resolved
+    resolution: Implementation detail (not a design decision). Already decided in turn4a: "fs.writeFileSync with mode:0o600."
+    resolved_in: findings-resolve-threads
+    source: gotcha-coverage
+    notes: |
+      Batch B Rank 3. ~/.pi-opa-net/salt contains root secret for all unlock keys.
+      If created with default umask (022 → file mode 644), any user on box reads it →
+      derives all keys → full bypass.
+      Mitigation: SaltResolver MUST fs.writeFileSync(path, salt, {mode:0o600}) on creation.
+      Verify on read: warn if mode != 600.

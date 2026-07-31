@@ -5,6 +5,7 @@ import type { EngineDecision, RawDeny } from '../engine/types.ts';
 import type { ParsedCommand } from '../parser/types.ts';
 import { type RuleMeta, type RuleRegistry, inferFamilyFromProgram } from '../rules/index.ts';
 import type { UnlockResult } from '../unlock/types.ts';
+import { PI_OPA_NET_VERSION } from '../version.ts';
 
 /** The schema-compliant decision output (decision-output.v1). */
 export interface DecisionOutput {
@@ -59,6 +60,8 @@ export interface DecisionMetadata {
   readonly unlock_count?: number;
   readonly unlock_blocked_count?: number;
   readonly unlock_agent?: string;
+  readonly pi_opa_net_version?: string;
+  readonly dry_run?: boolean;
 }
 
 export interface DecisionBuilderDeps {
@@ -114,7 +117,13 @@ export class DecisionBuilder {
       policy_path: this.deps.config.policyPath,
       hostname: this.deps.config.hostname ?? osHostname(),
       session_id: this.deps.config.sessionId ?? '',
+      pi_opa_net_version: PI_OPA_NET_VERSION,
     };
+    // Dry-run mode: PIOPANET_DRY_RUN=1 adds a marker to the metadata.
+    // This ensures tests and CI can verify the CLI is in evaluation-only mode.
+    if (process.env.PIOPANET_DRY_RUN === '1') {
+      (metadata as unknown as Record<string, unknown>).dry_run = true;
+    }
     if (unlockResult) {
       const meta = metadata as unknown as Record<string, unknown>;
       meta.unlock_count = unlockResult.bypassedCount;

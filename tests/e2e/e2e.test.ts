@@ -34,7 +34,7 @@ function runCli(command: string, mode: 'json' | 'claude-code' = 'json'): CaseRes
     const stdout = execFileSync('bun', ['run', BIN, ...args], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, HOME: process.env.HOME },
+      env: { ...process.env, HOME: process.env.HOME, PIOPANET_DRY_RUN: '1' },
     });
     return { exitCode: 0, stdout, record: tryParse(stdout) };
   } catch (err) {
@@ -122,6 +122,42 @@ const DENY_CASES: ExpectDeny[] = [
     ruleId: 'block-killall-tmux-wezterm',
     family: 'killall',
   },
+  // GROUP H — herdr session protection.
+  {
+    command: 'herdr server stop',
+    ruleId: 'block-herdr-server-stop',
+    family: 'herdr',
+  },
+  {
+    command: 'herdr session stop foo',
+    ruleId: 'block-herdr-session-stop',
+    family: 'herdr',
+  },
+  {
+    command: 'herdr session delete bar',
+    ruleId: 'block-herdr-session-delete',
+    family: 'herdr',
+  },
+  {
+    command: 'herdr workspace close baz',
+    ruleId: 'block-herdr-workspace-close',
+    family: 'herdr',
+  },
+  {
+    command: 'pkill herdr',
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+  },
+  {
+    command: 'killall herdr',
+    ruleId: 'block-killall-tmux-wezterm',
+    family: 'killall',
+  },
+  {
+    command: 'pkill bermuda',
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+  },
 ];
 
 const ALLOW_CASES: ExpectAllow[] = [
@@ -137,6 +173,10 @@ const ALLOW_CASES: ExpectAllow[] = [
   { command: 'tmux ls' }, // read-only tmux — must stay allowed
   { command: 'pkill firefox' }, // unrelated target — must stay allowed
   { command: 'killall vim' }, // unrelated target — must stay allowed
+  // GROUP H carve-outs (herdr read-only commands).
+  { command: 'herdr session list' }, // read-only — must stay allowed
+  { command: 'herdr workspace list' }, // read-only — must stay allowed
+  { command: 'pkill bermuda-helper' }, // unrelated target prefix — must stay allowed
 ];
 
 describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
@@ -186,6 +226,16 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
     }
   });
 
+  it('dry-run mode: PIOPANET_DRY_RUN=1 adds dry_run flag to metadata', () => {
+    const r = runCli('git stash list', 'json');
+    expect(r.exitCode).toBe(0);
+    const rec = r.record!;
+    const metadata = rec.metadata as Record<string, unknown>;
+    expect(metadata.dry_run).toBe(true);
+    expect(metadata.pi_opa_net_version).toBeDefined();
+    expect(typeof metadata.pi_opa_net_version).toBe('string');
+  });
+
   it('claude-code mode: allow emits empty stdout (CA2)', () => {
     const r = runCli('git stash list', 'claude-code');
     expect(r.exitCode).toBe(0);
@@ -206,8 +256,8 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
       const reasons = (r.record?.reasons as Array<Record<string, unknown>>) ?? [];
       for (const x of reasons) fired.add(x.rule_id as string);
     }
-    // 37 catalog rules → 40% = 15
-    expect(fired.size).toBeGreaterThanOrEqual(15);
+    // 41 catalog rules → 40% = 17
+    expect(fired.size).toBeGreaterThanOrEqual(17);
   }, 30000); // runs ~20 CLI subprocesses serially; needs headroom over the 5s default
 
   it('fail-open path: invalid policy path still resolves (source != crash)', () => {
@@ -217,7 +267,7 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
       const stdout = execFileSync('bun', args, {
         encoding: 'utf8',
         timeout: 10000,
-        env: { ...process.env, HOME: process.env.HOME },
+        env: { ...process.env, HOME: process.env.HOME, PIOPANET_DRY_RUN: '1' },
       });
       const rec = JSON.parse(stdout);
       // fail-open default → allow with source fail-open OR opa if it tolerated.

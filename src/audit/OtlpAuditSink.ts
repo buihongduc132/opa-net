@@ -29,6 +29,7 @@ type AuditEntry = {
   readonly command?: string;
   readonly rule_ids?: readonly string[];
   readonly evaluated_at?: string;
+  readonly pi_opa_net_version?: string;
   readonly [k: string]: unknown;
 };
 
@@ -89,6 +90,7 @@ export class OtlpAuditSink implements AuditSink {
         },
       },
       { key: 'evaluated_at', value: stringValue(entry.evaluated_at) },
+      { key: 'pi_opa_net_version', value: stringValue(entry.pi_opa_net_version) },
     ];
 
     return {

@@ -95,7 +95,7 @@
         },
         "family": {
           "type": "string",
-          "enum": ["git", "docker", "rm", "gcloud", "bq", "gh", "glab", "bd", "builtin", "custom", "tmux", "pkill", "killall"],
+          "enum": ["git", "docker", "rm", "gcloud", "bq", "gh", "glab", "bd", "builtin", "custom", "tmux", "pkill", "killall", "herdr"],
           "description": "Rule family for grouping/filtering. Matches the 6 families in the rego translation (turn6)."
         },
         "severity": {
@@ -204,6 +204,14 @@
         "unlock_agent": {
           "type": "string",
           "description": "Agent identifier that presented the unlock keys."
+        },
+        "pi_opa_net_version": {
+          "type": "string",
+          "description": "pi-opa-net package version (e.g. '0.4.0'). Every audit trace carries this for version correlation when debugging decision trails."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Present and true when PIOPANET_DRY_RUN=1 is set. Indicates the CLI is in evaluation-only mode (no command execution). Tests and CI should set this flag."
         }
       }
     }

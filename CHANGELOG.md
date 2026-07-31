@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-31
+
+### Added
+
+- **herdr session protection rules** — 4 new rules blocking destructive herdr commands: `block-herdr-server-stop`, `block-herdr-session-stop`, `block-herdr-session-delete`, `block-herdr-workspace-close`. Extends `session_kill_targets` in the rego policy to include `herdr` and `bermuda` (herdr plugin daemon), so `pkill herdr` / `killall bermuda` are also blocked. Herdr is a terminal workspace manager for AI coding agents; killing it destroys active workspaces, sessions, and agent state.
+- **`pi_opa_net_version` in all audit traces** — every decision metadata and audit log entry (filesystem JSONL + OTLP export) now carries the exact pi-opa-net package version. Enables after-the-fact version correlation when debugging decision trails. New `src/version.ts` reads the version from package.json once at module load.
+- **`PIOPANET_DRY_RUN` safety mode** — setting `PIOPANET_DRY_RUN=1` adds a `dry_run: true` marker to decision metadata. Tests and CI set this flag to guarantee the CLI is in evaluation-only mode (no command execution). E2E tests now run with this flag enabled.
+
+### Fixed
+
+- **pi-session smoke test: init git repo in temp cwd.** Pi requires a `.git` directory to start; the test now runs `git init` in the temp dir so the session can launch. Previously pi refused to start with "not a git repo".
+
 ## [0.4.2] - 2026-07-24
 
 ### Fixed
