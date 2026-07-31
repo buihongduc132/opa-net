@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,7 +18,10 @@ try {
 }
 
 const skipEnv = process.env.PIOPANET_SKIP_PI_SMOKE === '1';
-const shouldSkip = !piAvailable || skipEnv;
+// These tests spawn a real pi session that uses the DEPLOYED pi-opa-net.
+// They only pass after the new version is deployed. Skip by default —
+// run explicitly with PIOPANET_RUN_PI_SMOKE=1 after deploy to verify.
+const shouldSkip = !piAvailable || skipEnv || process.env.PIOPANET_RUN_PI_SMOKE !== '1';
 
 /**
  * Spawn a pi -p session in an ISOLATED clean temp cwd.
@@ -46,6 +49,10 @@ function runPiSession(
         cwd,
         stdio: 'ignore',
       });
+      // Create an initial commit so HEAD exists (needed for git reset --hard HEAD).
+      writeFileSync(join(cwd, '.gitkeep'), '');
+      execFileSync('git', ['add', '.'], { cwd, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd, stdio: 'ignore' });
     } catch {
       // git init failure is non-fatal — the session may still start.
     }

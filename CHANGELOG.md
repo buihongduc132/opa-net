@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **pi-session smoke test: init git repo in temp cwd.** Pi requires a `.git` directory to start; the test now runs `git init` in the temp dir so the session can launch. Previously pi refused to start with "not a git repo".
+- **pi-session smoke test: opt-in only.** These tests spawn a real pi session using the DEPLOYED pi-opa-net, not local source. They now skip by default and run explicitly with `PIOPANET_RUN_PI_SMOKE=1` after deploy.
 
 ## [0.4.2] - 2026-07-24
 
