@@ -13,7 +13,8 @@ export type RuleFamily =
   | 'custom'
   | 'tmux'
   | 'pkill'
-  | 'killall';
+  | 'killall'
+  | 'herdr';
 
 export interface RuleMeta {
   readonly ruleId: string;

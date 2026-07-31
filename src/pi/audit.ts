@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DecisionOutput } from '../output/DecisionBuilder.ts';
+import { PI_OPA_NET_VERSION } from '../version.ts';
 
 /**
  * Redact common secret patterns from a command string before audit.
@@ -42,6 +43,7 @@ interface AuditEntry {
   command: string;
   rule_ids: string[];
   evaluated_at: string;
+  pi_opa_net_version: string;
 }
 
 export async function writeAuditEntry(input: WriteAuditEntryInput): Promise<void> {
@@ -54,6 +56,7 @@ export async function writeAuditEntry(input: WriteAuditEntryInput): Promise<void
     command: redactSecrets(input.decision.input.raw),
     rule_ids: input.decision.reasons.map((r) => r.rule_id),
     evaluated_at: input.decision.evaluated_at,
+    pi_opa_net_version: PI_OPA_NET_VERSION,
   };
 
   await input.auditSink.write(entry);

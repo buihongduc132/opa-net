@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,6 +35,20 @@ function runPiSession(
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((accept, reject) => {
     const cwd = mkdtempSync(join(tmpdir(), 'piopa-smoke-'));
+    // pi requires a git repo in cwd; init one so the session can start.
+    try {
+      execFileSync('git', ['init', '-q'], { cwd, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'smoke@pi-opa-net.test'], {
+        cwd,
+        stdio: 'ignore',
+      });
+      execFileSync('git', ['config', 'user.name', 'pi-opa-net smoke'], {
+        cwd,
+        stdio: 'ignore',
+      });
+    } catch {
+      // git init failure is non-fatal — the session may still start.
+    }
     const cleanup = () => rmSync(cwd, { recursive: true, force: true });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');

@@ -90,4 +90,29 @@ describe('rule catalog ↔ rego parity', () => {
       }
     });
   });
+
+  // ── herdr session protection rule parity ──
+  describe('herdr session protection rule parity', () => {
+    const REQUIRED_RULE_IDS = [
+      'block-herdr-server-stop',
+      'block-herdr-session-stop',
+      'block-herdr-session-delete',
+      'block-herdr-workspace-close',
+    ];
+
+    it('catalog contains all herdr rule IDs', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('each herdr rule maps to family herdr', () => {
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      for (const id of REQUIRED_RULE_IDS) {
+        const rule = byId.get(id);
+        expect(rule, `catalog entry for ${id} must exist`).toBeDefined();
+        expect(rule!.family).toBe('herdr');
+      }
+    });
+  });
 });

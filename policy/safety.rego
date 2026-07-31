@@ -436,7 +436,7 @@ deny[msg] if {
 # canonical rulebook reason field.
 # ──────────────────────────────────────────────────────────────────
 
-session_kill_targets := ["tmux", "wezterm", "wezterm-mux-server"]
+session_kill_targets := ["tmux", "wezterm", "wezterm-mux-server", "herdr", "bermuda"]
 
 deny[msg] if {
     input.program == "tmux"
@@ -460,6 +460,44 @@ deny[msg] if {
     input.program == "killall"
     has_any_arg(input.args, session_kill_targets)
     msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP H — herdr session protection
+# (herdr is a terminal workspace manager for AI coding agents;
+#  killing it destroys active workspaces, sessions, and agent state.)
+# ──────────────────────────────────────────────────────────────────
+
+# Block `herdr server stop` — stops the herdr daemon.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["server"])
+    has_any_arg(input.args, ["stop"])
+    msg := "Stopping the herdr server destroys all active workspaces, sessions, and agent state. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `herdr session stop <name>` — stops a named session.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["session"])
+    has_any_arg(input.args, ["stop"])
+    msg := "Stopping a herdr session destroys in-flight agent work. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `herdr session delete <name>` — deletes a stopped session.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["session"])
+    has_any_arg(input.args, ["delete"])
+    msg := "Deleting a herdr session removes persisted state. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `herdr workspace close <name>` — closes a workspace.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["workspace"])
+    has_any_arg(input.args, ["close"])
+    msg := "Closing a herdr workspace destroys active agent state. Do NOT run this automatically — hand the exact command back to the user."
 }
 
 # ──────────────────────────────────────────────────────────────────

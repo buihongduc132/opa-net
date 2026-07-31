@@ -239,6 +239,31 @@ export const RULES: readonly RuleMeta[] = [
     message:
       'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
   },
+  // ── GROUP H: herdr session protection ──
+  {
+    ruleId: 'block-herdr-server-stop',
+    family: 'herdr',
+    message:
+      'Stopping the herdr server destroys all active workspaces, sessions, and agent state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-herdr-session-stop',
+    family: 'herdr',
+    message:
+      'Stopping a herdr session destroys in-flight agent work. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-herdr-session-delete',
+    family: 'herdr',
+    message:
+      'Deleting a herdr session removes persisted state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-herdr-workspace-close',
+    family: 'herdr',
+    message:
+      'Closing a herdr workspace destroys active agent state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
 ];
 
 /** gcloud/bq produce sprintf messages — family inferred from program.
@@ -257,6 +282,8 @@ export function inferFamilyFromProgram(program: string): RuleFamily {
       return 'pkill';
     case 'killall':
       return 'killall';
+    case 'herdr':
+      return 'herdr';
     default:
       return 'custom';
   }

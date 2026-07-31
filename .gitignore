@@ -10,3 +10,7 @@ node_modules/
 .gitnexus/
 .worktrees/
 .wt-*/
+# Runtime artifacts
+.pi-opa-net/
+.pi-subagents/
+.pi/
