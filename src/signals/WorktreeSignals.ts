@@ -5,7 +5,10 @@
  * Handles flag arity: -b/-B consume next arg, --detach/--orphan/--no-checkout don't.
  * `--` stops flag processing.
  *
- * Also used by worktree-path-allowlist rule.
+ * Path semantics:
+ *   - `git worktree add [<commit-ish>] <path>` → path is LAST positional (commit-ish optional)
+ *   - `git worktree move <wt> <new-path>`     → path is LAST positional (new-path)
+ *   - `git worktree repair <path>`            → path is FIRST positional
  */
 
 import type { SignalCollector, SignalContext } from './types.ts';
@@ -43,8 +46,19 @@ export class WorktreeSignals implements SignalCollector {
       return { available: false, target_path: null, worktree_subcommand: wtSubcommand };
     }
 
-    // Parse remaining args to find the target path.
-    const targetPath = parseWorktreePath(args.slice(1));
+    // Parse remaining args to find positionals.
+    const positionals = parsePositionals(args.slice(1));
+
+    // Path extraction depends on subcommand:
+    //   - add:   [<commit-ish>] <path> → path is LAST positional
+    //   - move:  <wt> <new-path>       → path is LAST positional (new-path)
+    //   - repair: <path>               → path is LAST positional (first/only)
+    // For all three, the path is the LAST positional (semantically consistent).
+    // For add: if commit-ish given, it's the first positional; path is second.
+    //         If only path given, it's the only positional.
+    // For move: first positional is the worktree name, second is new-path.
+    // For repair: only positional(s) are paths.
+    const targetPath = positionals.length > 0 ? positionals[positionals.length - 1] : null;
 
     return {
       available: targetPath !== null,
@@ -55,15 +69,13 @@ export class WorktreeSignals implements SignalCollector {
 }
 
 /**
- * Extract the positional path from worktree add/move/repair args.
- *
- * For `add`: path is the first positional after flags.
- * For `move`: path is the SECOND positional (first is the worktree name).
- * For `repair`: path is the first positional.
+ * Parse positional args, skipping flags and their values.
+ * Handles `--` separator.
  *
  * @param args - args after the worktree subcommand
+ * @returns array of positional tokens (non-flag, non-value)
  */
-export function parseWorktreePath(args: readonly string[]): string | null {
+export function parsePositionals(args: readonly string[]): string[] {
   const positionals: string[] = [];
   let i = 0;
 
@@ -99,11 +111,14 @@ export function parseWorktreePath(args: readonly string[]): string | null {
     i++;
   }
 
-  // For `move`, the target path is the second positional.
-  // For `add` and `repair`, the target path is the first positional.
-  // But we don't know the subcommand here — return the last positional
-  // (for move it's the new-path; for add/repair it's the path).
-  // Actually, we need the subcommand context. Return the last positional
-  // since that's always the path for move, and the only positional for add/repair.
+  return positionals;
+}
+
+/**
+ * @deprecated Use parsePositionals instead. Kept for backwards compat.
+ * Returns the last positional (which is the path for add/move/repair).
+ */
+export function parseWorktreePath(args: readonly string[]): string | null {
+  const positionals = parsePositionals(args);
   return positionals.length > 0 ? positionals[positionals.length - 1] : null;
 }

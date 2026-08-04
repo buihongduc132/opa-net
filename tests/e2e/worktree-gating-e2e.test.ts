@@ -40,6 +40,14 @@ let allowedDir: string;
 beforeAll(() => {
   mkdirSync(auditDir, { recursive: true });
 
+  // Clean up stale artifacts from prior runs (verifier caught stale e-file-restore-allow.jsonl).
+  try {
+    rmSync(auditDir, { recursive: true, force: true });
+    mkdirSync(auditDir, { recursive: true });
+  } catch {
+    // best effort
+  }
+
   if (!opaAvailable) return;
 
   // Create main fixture repo.
@@ -221,6 +229,36 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
 
     expect(result.exitCode).toBe(2);
     expect(result.record?.decision).toBe('deny');
+  });
+
+  it('(i) sub-worktree exemption: checkout non-allowed from linked worktree → ALLOW', () => {
+    // Create a linked worktree under allowed dir.
+    const subWt = join(allowedDir, 'sub-wt-exempt');
+    try {
+      execSync(`git worktree add ${subWt} -b sub-branch`, { cwd: fixtureRepo, stdio: 'ignore' });
+    } catch {
+      // may already exist
+    }
+
+    // From within the linked worktree, checkout to a non-allowed branch should ALLOW
+    // because signals.repo.is_main_worktree should be false.
+    const result = runCli('git checkout feature-evil', subWt);
+    writeAudit('i-sub-worktree-exempt', result, 'git checkout feature-evil (from linked worktree)');
+
+    // Sub-worktree exemption → branch-target-allowlist does NOT fire.
+    const reasons = JSON.stringify(result.record?.reasons ?? '');
+    expect(reasons).not.toContain('branch-target-allowlist');
+
+    // Verify signal shows is_main_worktree=false.
+    const signals = JSON.stringify(result.record?.signals ?? '');
+    expect(signals).toContain('is_main_worktree');
+
+    // Clean up the worktree.
+    try {
+      execSync(`git worktree remove ${subWt} --force`, { cwd: fixtureRepo, stdio: 'ignore' });
+    } catch {
+      // best effort
+    }
   });
 
   it('audit logs exist on disk for third-party verification', () => {

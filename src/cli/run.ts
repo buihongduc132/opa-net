@@ -146,7 +146,7 @@ async function evaluatePossiblyCompound(
     const parsed = parser.parse(raw);
     const signals = collectSignals(parsed, cwd, raw, config, collectors);
     const engineDecision = await engine.evaluate(parsed, signals);
-    return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys });
+    return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
   }
 
   // Compound path: evaluate each segment, deny wins.
@@ -155,7 +155,7 @@ async function evaluatePossiblyCompound(
     const parsed = parser.parse(segment);
     const signals = collectSignals(parsed, cwd, segment, config, collectors);
     const engineDecision = await engine.evaluate(parsed, signals);
-    const output = buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys });
+    const output = buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
     if (output.decision === 'deny' && output.action === 'block') {
       denyOutput = output;
       break; // first deny wins
@@ -175,6 +175,7 @@ async function evaluatePossiblyCompound(
     builder,
     unlockKeys,
     hasKeys,
+    signals: firstSignals,
   });
 }
 
@@ -187,19 +188,20 @@ function buildDecision(
     builder: DecisionBuilder;
     unlockKeys: readonly string[];
     hasKeys: boolean;
+    signals?: Signals;
   },
 ): DecisionOutput {
-  const { config, builder, unlockKeys, hasKeys } = deps;
+  const { config, builder, unlockKeys, hasKeys, signals } = deps;
 
   let output: DecisionOutput;
 
   if (engineDecision.source === 'fail-open' && hasKeys) {
     // LD-G1: OPA down + keys present → fail-open-keyless (NOT opa-unlocked).
-    output = builder.build(parsed, engineDecision);
+    output = builder.build(parsed, engineDecision, { signals });
     output = { ...output, source: 'fail-open-keyless' };
   } else if (!hasKeys || engineDecision.decision === 'allow') {
     // No keys or engine said allow → no unlock filtering.
-    output = builder.build(parsed, engineDecision);
+    output = builder.build(parsed, engineDecision, { signals });
   } else {
     // Engine said deny + keys present → run unlock filter [D1].
     let unlockResult: UnlockResult | undefined;
@@ -220,10 +222,10 @@ function buildDecision(
     }
 
     if (filterCrashed) {
-      output = builder.build(parsed, engineDecision);
+      output = builder.build(parsed, engineDecision, { signals });
       output = { ...output, source: 'unlock-filter-error' };
     } else {
-      output = builder.build(parsed, engineDecision, { unlockResult });
+      output = builder.build(parsed, engineDecision, { unlockResult, signals });
     }
   }
 
