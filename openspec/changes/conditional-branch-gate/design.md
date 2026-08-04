@@ -17,17 +17,18 @@ Current relevant code:
 
 **Goals:**
 - Introduce `input.signals` as a first-class OPA input so policies can be conditional on repo/environment context.
-- Ship exactly one signal family in v1 (`git.*`), enough to block branch-switching off protected branches.
+- Ship three signal families in v1 (`git.*`, `repo.*`, `worktree.*`) plus `env.home`, enough to block branch-switching to non-allowlisted branches AND `git worktree add` outside approved dirs.
 - Keep the change additive: no break to schema v1, exit codes, fail-mode, or the Claude Code hook protocol.
 - Make future signals a config-only addition (new collector module + Rego rule), not a pipeline rewrite.
-- Stay dependency-free for the collector (Node `execFileSync`, already the established pattern).
+- Stay dependency-free for the collector (Node `execFileSync` + `fs.realpathSync`, already established patterns).
+- Close CVE-class bypass paths (path traversal, symlink escape, git global option injection, checkout disambiguation) via mandatory hardening (LD6–LD8).
 
 **Non-Goals:**
 - No boolean policy DSL beyond what Rego already provides.
-- No `env.*` value gating in v1 (env collected, exposed, not gated).
-- No pi-extension wiring (OT5 — separate `pi-opa-net-ext` repo).
+- No broad `env.*` value gating in v1 — only `env.home` for tilde expansion of allowed-prefix paths (OT2 amended).
+- No pi-extension caller identification (LD4: rules fire for ALL callers; OT16 tracks unlock-key friction).
 - No changes to the `pi-safety-net` fork (Path A stays token-only).
-- No multi-repo / worktree-aware branch resolution beyond the command's cwd.
+- No `gh repo clone` / `gh repo sync` path-discipline (LD5 scopes to `git worktree` only; OT7 tracks as future work).
 
 ## Decisions
 
@@ -76,23 +77,63 @@ Current relevant code:
 - *No signals on the decision record* — loses provenance; the whole point of this repo's symmetric schema is traceability.
 - *Bump to v2* — LD5 locks v1; v2 is reserved for breaking changes.
 
+### D6 — Path canonicalization pre-rego (LD6)
+**Choice:** TS-side `fs.realpathSync()` runs on both the target path AND every allowed-prefix BEFORE Rego sees them. Reject if realpath fails, if resolved path contains `..` segments, or if target basename is `.git`. Rego prefix match uses `startswith(resolved, allowed + path.sep)` to enforce boundary.
+
+**Why:** Rego has no filesystem access — cannot resolve symlinks or `..`. The security boundary MUST be enforced in TS before Rego receives the data. SEI CERT FIO02-A, OWASP Path Traversal, CVE-2026-55607, CVE-2024-32002 all confirm: naive `startswith` prefix match is defeated by symlinks and `..` traversal.
+
+**Alternatives rejected:**
+- *Rego-side string normalization* — rego has no filesystem access; cannot resolve symlinks.
+- *Reject-only without realpath* — cannot detect symlink escapes; `..` traversal trivially bypasses.
+
+### D7 — Checkout/switch target disambiguation (LD7)
+**Choice:** Detect `--` in args → pathspec form → skip branch rules entirely. Classify target via `git rev-parse --verify refs/heads/<X>` — if not a local branch ref → skip rule (commit-ish/tag/remote-tracking). Handle `--detach`/`-d` as detached-HEAD intent. Handle `-` (previous) via `git rev-parse @{-1}`. Normalize `origin/feature` → strip remote prefix for allowlist lookup.
+
+**Why:** `git checkout` has two distinct semantics: branch switch vs file restore. Without disambiguation, `git checkout feature -- file.ts` (file restore) would be misclassified as a branch switch. `git(1)` ARGUMENT DISAMBIGUATION section and builtin/checkout.c `parse_branchname_arg` (4 cases) confirm the classification logic.
+
+**Alternatives rejected:**
+- *Regex-only classification* — too many false positives (commit-ish, remote-tracking, file restores).
+- *Skip checkout entirely, only gate switch* — LD1 user-locked to include checkout.
+
+### D8 — Git global option stripping (LD8)
+**Choice:** Add `stripGitGlobalOptions(args[])` pre-pass in `ShellQuoteParser.classify()` when `program === "git"`. Strip known globals before subcommand classification: `-C <path>`, `-c <name>=<value>`, `--git-dir=<path>`, `--work-tree=<path>`, `--namespace=<name>`, `--exec-path=<path>`, `-p`, `-P`, `--no-replace-objects`, `--no-lazy-fetch`, `--no-advice`, `--bare`, `--paginate`, `--no-pager`, `--help`, `--version`, `--html-path`, `--man-path`, `--info-path`. Handle both space-separated and `=`-joined forms.
+
+**Why:** Without stripping, `git -C /evil worktree add foo` produces `subcommand=""` (because `rest[0].startsWith('-')`) → all rules defeated. `git(1)` SYNOPSIS (global options before command) and `git.c handle_options()` (canonical dispatch) confirm the parsing contract.
+
+**Alternatives rejected:**
+- *Regex-based subcommand extraction from raw string* — same maintenance burden, less reliable.
+- *fail-closed on unrecognized leading dash* — breaks legitimate git usage.
+
+### D9 — `is_main_worktree` detection via `git rev-parse` (LD4)
+**Choice:** `signals.repo.is_main_worktree` compares `git rev-parse --git-dir` vs `git rev-parse --git-common-dir`. If they differ → linked worktree (sub-worktree) → rule skips. If same → main worktree → rule fires. Fail-open on errors.
+
+**Why:** `stat <cwd>/.git` is unreliable: submodules have `.git` as FILE (gitdir: .../modules/...) → misclassified as "not main worktree" → silent bypass. `git rev-parse --git-dir` vs `--git-common-dir` is the stable contract.
+
+**Alternatives rejected:**
+- *stat-based detection* — fragile across submodules, packed refs, worktrees.
+- *Always-fire (no is_main_worktree check)* — contradicts LD4 "sub-worktrees roam free" guarantee.
+
 ## Risks / Trade-offs
 
-- **[Risk] git call latency on every guarded command** → `GitSignals` only shells out when `parsed.program === "git"` and subcommand is `checkout|switch` (the only consumers of the signal today); non-git commands skip collection entirely. Cache the branch for a short TTL keyed by cwd if profiling shows impact (deferred — measure first).
-- **[Risk] Signal collection throws and aborts evaluation** → every collector is wrapped; any throw ⇒ that signal is `{available:false}`, never aborts the decision. Covered by OT2's fail-open posture at the engine layer as a backstop.
-- **[Risk] `target_branch` misparsed** (e.g. `git checkout -b new`, `git switch -`) → parser only extracts a bare branch token; flags (`-b`, `-`, `--`) are excluded. When ambiguous, `target_branch` is `null` and the rule skips (fail-open).
+- **[Risk] git call latency on every guarded command** → git signals only shell out when `parsed.program === "git"` and subcommand is relevant (checkout/switch/worktree). Non-git commands skip collection entirely. Batch: `git rev-parse --abbrev-ref HEAD --show-toplevel --git-common-dir` in one call. Short TTL cache. Lazy collection.
+- **[Risk] Signal collection throws and aborts evaluation** → every collector is wrapped; any throw ⇒ that signal is `{available:false}`, never aborts the decision. Covered by OT2's fail-open posture at the engine layer as backstop.
+- **[Risk] `target_branch` misparsed** (e.g. `git checkout -b new`, `git switch -`) → LD7 disambiguation resolves via `git rev-parse --verify refs/heads/<X>`. When ambiguous, `target_branch` is `null` and the rule skips (fail-open).
 - **[Risk] Cross-platform git path** → `execFileSync` resolves `git` from PATH; on boxes where git isn't on PATH the collector fails open. Documented prerequisite (git is already required for any `git checkout` to work anyway).
+- **[Risk] Path traversal bypass** → LD6 mandatory canonicalization closes CVE-class bypass. `fs.realpathSync()` + `..` rejection + `.git` basename rejection + boundary-enforced prefix match.
+- **[Risk] Git global option bypass** → LD8 mandatory stripping closes `-C /evil` bypass. Pre-pass runs before subcommand classification.
 - **[Trade-off] We carry the signals design ourselves vs adopt Cupcake** → accepted. Ownership of the schema + LD1 is the explicit reason. Documented as the strategic alternative in the proposal; this design makes Cupcake a reference, not a dependency.
 - **[Trade-off] Branch-protection is opinionated** → mitigated by D4 (configurable + empty-disables). The default set is the most common convention, not a mandate.
+- **[Trade-off] Worktree-path-allowlist is opinionated** → mitigated by LD3 (configurable + empty-disables). Default prefixes cover the two most common conventions (`.worktrees/`, `worktrees/`) plus the superpowers convention.
 
 ## Migration Plan
 
-1. **Implement** `src/signals/`, wire evaluator, extend rego + schema + config (see tasks.md).
-2. **Test** — new e2e fixtures: protected branch → deny; non-protected → allow; detached HEAD → skip; `PIOPANET_PROTECTED_BRANCHES=""` → rule inert; `PIOPANET_PROTECTED_BRANCHES=develop,trunk` → respected.
-3. **No data/behavior migration** — additive; existing decisions are unchanged (no `signals` field ⇒ consumers treat as absent).
-4. **Rollout** — ship as a minor bump (0.1.x → 0.2.0). The branch-protection rule is ON by default; repos that want it off set `PIOPANET_PROTECTED_BRANCHES=""`.
-5. **Rollback** — revert to prior tag; no persisted state to clean up (signals are per-invocation, never written).
-6. **Doc update** — README capabilities + new `docs/signals.md`; update OT4/OT5 notes to record that the signals gap is now closed.
+1. **Implement** `src/signals/` (GitSignals, RepoSignals, WorktreeSignals, EnvSignals), `src/parser/stripGitGlobalOptions.ts`, `src/parser/checkoutTarget.ts`, `src/util/canonicalizePath.ts`, wire evaluator, extend rego + schema + config (see tasks.md).
+2. **Test** — new e2e fixtures: branch-target-allowlist (deny from main worktree; allow from sub-worktree; config override); worktree-path-allowlist (deny `/tmp/evil`; deny symlink escape; deny `git -C /evil worktree add`; allow `.worktrees/feat`); checkout disambiguation (file restore → allow; detached HEAD → skip; commit-ish → skip); global option stripping (each global option stripped correctly).
+3. **Audit** — E2E tests write decision records to `.pi-opa-net/audit/<decision-id>.jsonl` for third-party verification.
+4. **No data/behavior migration** — additive; existing decisions are unchanged (no `signals` field ⇒ consumers treat as absent).
+5. **Rollout** — ship as a minor bump (0.1.x → 0.2.0). New rules are ON by default; repos that want them off set env vars to empty.
+6. **Rollback** — revert to prior tag; no persisted state to clean up (signals are per-invocation, never written).
+7. **Doc update** — README capabilities + `docs/signals.md`; update OT4/OT5 notes to record that the signals gap is now closed.
 
 ## Open Questions
 

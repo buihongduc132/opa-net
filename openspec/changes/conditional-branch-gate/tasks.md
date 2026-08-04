@@ -61,3 +61,44 @@
 - [ ] 8.4 Validate `decision-output.v1.json` against its own meta-schema and sample decision records.
 - [ ] 8.5 Inspect `git status` and ensure only intended files are changed (no accidental `node_modules` or unrelated edits).
 - [ ] 8.6 Open `/opsx-apply` and implement the change.
+
+## 9. Parser hardening — git global option stripping (LD8)
+
+- [ ] 9.1 Implement `stripGitGlobalOptions(args: string[]): string[]` in `src/parser/stripGitGlobalOptions.ts`. Strip known globals before subcommand classification: `-C <path>`, `-c <name>=<value>`, `--git-dir=<path>`, `--work-tree=<path>`, `--namespace=<name>`, `--exec-path=<path>`, `-p`, `-P`, `--no-replace-objects`, `--no-lazy-fetch`, `--no-advice`, `--bare`, `--paginate`, `--no-pager`, `--help`, `--version`, `--html-path`, `--man-path`, `--info-path`. Handle both space-separated and `=`-joined forms.
+- [ ] 9.2 Wire `stripGitGlobalOptions` into `ShellQuoteParser.classify()` so it runs when `program === "git"` BEFORE subcommand extraction.
+- [ ] 9.3 Unit tests for `stripGitGlobalOptions`: each global option (space-separated + `=`-joined), multiple globals in sequence, no globals (passthrough), unknown flags (preserved).
+
+## 10. Checkout/switch target disambiguation (LD7)
+
+- [ ] 10.1 Implement `classifyCheckoutTarget(args: string[], cwd: string): CheckoutClassification` in `src/parser/checkoutTarget.ts`. Detect `--` separator → pathspec form → return `{ kind: 'file-restore' }`. Extract first positional after stripping flags. Handle `--detach`/`-d` → `{ kind: 'detached' }`. Handle `-` (previous) via `git rev-parse @{-1}`. Normalize `origin/feature` → strip remote prefix. Resolve via `git rev-parse --verify refs/heads/<X>` — if not a local branch ref → `{ kind: 'commit-ish' }`. Fail-open on git errors.
+- [ ] 10.2 Unit tests for `classifyCheckoutTarget`: bare branch switch, file restore (`-- file.ts`), commit-ish, detached HEAD, remote-tracking (`origin/feature`), `-` (previous), empty args, flags-only.
+
+## 11. Signal collection — repo, worktree, env families
+
+- [ ] 11.1 Implement `RepoSignals` collector in `src/signals/RepoSignals.ts`. Collects `signals.repo.is_main_worktree` via `git rev-parse --git-dir` vs `--git-common-dir` (differ = linked worktree). Collects `signals.repo.name` via `git rev-parse --show-toplevel` → basename. Fail-open on errors.
+- [ ] 11.2 Implement `WorktreeSignals` collector in `src/signals/WorktreeSignals.ts`. Extracts `signals.worktree.target_path` from positional args after `git worktree add|move|repair`. Uses `parseWorktreePath(args: string[]): string | null` that handles flag arity (-b/-B consume next arg, --detach/--orphan/--no-checkout don't, -- stops flag processing).
+- [ ] 11.3 Implement `EnvSignals` collector in `src/signals/EnvSignals.ts`. Collects `signals.env.home` via `os.homedir()` (cross-platform, handles Windows USERPROFILE). Fail-open.
+- [ ] 11.4 Wire all collectors into `collectAll()` array in `src/signals/index.ts`. Lazy collection: only invoke when `parsed.program === "git"`.
+- [ ] 11.5 Unit tests for each collector: repo (main worktree, sub-worktree, non-repo), worktree (add path, move path, flags), env (home resolution).
+
+## 12. Path canonicalization (LD6)
+
+- [ ] 12.1 Implement `canonicalizePath(target: string, allowedPrefixes: string[]): CanonicalizeResult` in `src/util/canonicalizePath.ts`. Steps: (a) `fs.realpathSync(target)` — reject if fails. (b) Check resolved path has no `..` segments — reject if present. (c) Check basename is not `.git` — reject if so. (d) For each allowed prefix, `fs.realpathSync(prefix)` — skip if fails. (e) Check `startswith(resolved, allowed + path.sep)` for boundary enforcement.
+- [ ] 12.2 Define `CanonicalizeResult = { resolved: string; allowed: boolean; reason?: string }`.
+- [ ] 12.3 Unit tests: symlink escape → reject, `..` traversal → reject, `.git`-named target → reject, valid path under allowed prefix → allow, path not under any prefix → deny, missing target → reject (realpath fails).
+
+## 13. Configuration — allowed branches + allowed dirs (LD3)
+
+- [ ] 13.1 Extend `EngineConfig` in `src/config/Config.ts` with `allowedBranches?: string[]` and `worktreeAllowedDirs?: string[]`.
+- [ ] 13.2 Add `parseAllowedBranches(envValue?: string): string[]` — default `["dev","staging","main","master"]`, empty string → `[]`. Reuse split-filter pattern (`.split(',').map(trim).filter(len>0)`).
+- [ ] 13.3 Add `parseWorktreeAllowedDirs(envValue?: string): string[]` — default `[".worktrees","worktrees","~/.config/superpowers/worktrees"]`, empty string → `[]`. Expand `~` to `os.homedir()`.
+- [ ] 13.4 Update `configFromEnv` to read `PIOPANET_ALLOWED_BRANCHES` + `PIOPANET_WORKTREE_ALLOWED_DIRS`.
+- [ ] 13.5 Unit tests: trailing comma, whitespace, empty string, custom values, tilde expansion.
+
+## 14. Rego rules — branch-target-allowlist + worktree-path-allowlist
+
+- [ ] 14.1 Add `branch_target_allowlist` rule to `policy/safety.rego`: deny `checkout`/`switch` when `signals.repo.is_main_worktree` AND `target_branch` is a local branch ref AND `target_branch` ∉ `data.config.allowed_branches`.
+- [ ] 14.2 Add `worktree_path_allowlist` rule: deny `worktree add|move|repair` when canonicalized path ∉ allowed prefixes (boundary-enforced `startswith`).
+- [ ] 14.3 Update `OpaCliEngine` to pass `data.config.allowed_branches` and `data.config.worktree_allowed_dirs` in the OPA data bundle.
+- [ ] 14.4 Wire canonicalized paths into OPA input (resolved target + resolved allowed prefixes as arrays).
+- [ ] 14.5 Rego tests via `opa eval` for each new rule.
