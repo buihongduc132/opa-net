@@ -1,5 +1,6 @@
 import { parse as shellQuoteParse } from 'shell-quote';
 import type { CommandParser, ParsedCommand } from './types.ts';
+import { stripGitGlobalOptions } from './stripGitGlobalOptions.ts';
 
 /**
  * Programs that use a `[program, subcommand, args...]` shape.
@@ -52,14 +53,18 @@ function classify(strings: string[], raw: string, hasMeta: boolean): ParsedComma
   const program = programRaw.toLowerCase();
   const confidence = hasMeta ? 'partial' : 'full';
 
+  // LD8: Strip git global options BEFORE subcommand classification.
+  // Without this, `git -C /evil worktree add foo` → subcommand="" (all rules defeated).
+  const effectiveRest = program === 'git' ? stripGitGlobalOptions(rest) : rest;
+
   // Subcommand-style programs: tokens[1] is the subcommand (unless it's a flag).
-  if (SUBCOMMAND_PROGRAMS.has(program) && rest.length > 0 && !rest[0].startsWith('-')) {
-    const [sub, ...args] = rest;
+  if (SUBCOMMAND_PROGRAMS.has(program) && effectiveRest.length > 0 && !effectiveRest[0].startsWith('-')) {
+    const [sub, ...args] = effectiveRest;
     return { raw, program, subcommand: sub.toLowerCase(), args, parseConfidence: confidence };
   }
 
   // Non-subcommand programs: everything after program is an arg.
-  return { raw, program, subcommand: '', args: rest, parseConfidence: confidence };
+  return { raw, program, subcommand: '', args: effectiveRest, parseConfidence: confidence };
 }
 
 /** shell-quote emits objects ({op, ...}) for redirects/pipelines/subshells. */

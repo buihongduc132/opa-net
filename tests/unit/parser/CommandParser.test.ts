@@ -57,11 +57,25 @@ describe('ShellQuoteParser', () => {
     expect(bd.args).toEqual(['--notes']);
   });
 
-  it('subcommand-style program with flag as token[1]: flag goes to args', () => {
+  it('subcommand-style program with flag as token[1]: flag goes to args (non-global)', () => {
+    const r = p.parse('git --no-such-flag');
+    expect(r.program).toBe('git');
+    expect(r.subcommand).toBe('');
+    expect(r.args).toEqual(['--no-such-flag']);
+  });
+
+  it('LD8: strips git global options before subcommand classification', () => {
+    const r = p.parse('git -C /evil worktree add foo');
+    expect(r.program).toBe('git');
+    expect(r.subcommand).toBe('worktree');
+    expect(r.args).toEqual(['add', 'foo']);
+  });
+
+  it('LD8: strips --version global option', () => {
     const r = p.parse('git --version');
     expect(r.program).toBe('git');
     expect(r.subcommand).toBe('');
-    expect(r.args).toEqual(['--version']);
+    expect(r.args).toEqual([]); // --version is stripped as a global option
   });
 
   it('reports partial confidence on redirects', () => {

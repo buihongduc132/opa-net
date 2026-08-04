@@ -1,5 +1,4 @@
-/**
- * Fail-mode when the decision engine is unreachable [OT2 resolution].
+/** Fail-mode when the decision engine is unreachable [OT2 resolution].
  * - `open`: allow the command through (default — matches pi-safety-net fork).
  * - `closed`: block the command until engine responds.
  */
@@ -29,6 +28,10 @@ export interface EngineConfig {
   readonly unlockSaltPath?: string;
   /** Agent ID for unlock audit metadata (PIOPANET_AGENT_ID). */
   readonly unlockAgentId?: string;
+  /** Allowed branches for branch-target-allowlist rule (LD1). Default: dev,staging,main,master. */
+  readonly allowedBranches?: readonly string[];
+  /** Allowed prefixes for worktree-path-allowlist rule (LD3). Default: .worktrees,worktrees,~/.config/superpowers/worktrees. */
+  readonly worktreeAllowedDirs?: readonly string[];
 }
 
 const ENV = process.env;
@@ -88,6 +91,10 @@ export function configFromEnv(policyPath: string): EngineConfig {
 
   const unlockAgentId = ENV.PIOPANET_AGENT_ID;
 
+  // LD1/LD3: config-driven allowlists.
+  const allowedBranches = parseAllowedBranches(ENV.PIOPANET_ALLOWED_BRANCHES);
+  const worktreeAllowedDirs = parseWorktreeAllowedDirs(ENV.PIOPANET_WORKTREE_ALLOWED_DIRS);
+
   return {
     opaBinary: resolveOpaBinary(),
     policyPath,
@@ -99,7 +106,46 @@ export function configFromEnv(policyPath: string): EngineConfig {
     unlockKeys,
     unlockSaltPath,
     unlockAgentId,
+    allowedBranches,
+    worktreeAllowedDirs,
   };
+}
+
+/** Parse PIOPANET_ALLOWED_BRANCHES. Default: dev,staging,main,master. Empty → []. */
+export function parseAllowedBranches(envValue?: string): string[] {
+  if (envValue === undefined) {
+    return ['dev', 'staging', 'main', 'master'];
+  }
+  return envValue
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** Parse PIOPANET_WORKTREE_ALLOWED_DIRS. Default: .worktrees,worktrees,~/.config/superpowers/worktrees. Empty → []. */
+export function parseWorktreeAllowedDirs(envValue?: string): string[] {
+  if (envValue === undefined) {
+    const home = ENV.HOME ?? process.env.HOME ?? '';
+    return ['.worktrees', 'worktrees', `${home}/.config/superpowers/worktrees`];
+  }
+  const raw = envValue
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  // Expand ~ to home dir.
+  return raw.map((s) => expandTilde(s));
+}
+
+/** Expand leading ~ to $HOME (or os.homedir() cross-platform). */
+function expandTilde(path: string): string {
+  if (path === '~') {
+    return ENV.HOME ?? process.env.HOME ?? path;
+  }
+  if (path.startsWith('~/')) {
+    const home = ENV.HOME ?? process.env.HOME ?? '';
+    return `${home}${path.slice(1)}`;
+  }
+  return path;
 }
 
 /** Default salt file path: ~/.pi-opa-net/salt. */
