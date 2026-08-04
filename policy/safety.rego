@@ -528,22 +528,26 @@ target_is_local_branch if {
 }
 
 # Deny checkout to non-allowed branch from main worktree.
+# Empty allowed_branches → rule inert (LD3).
 deny[msg] if {
     input.program == "git"
     input.subcommand == "checkout"
     repo_available_main_worktree
     target_is_local_branch
+    count(allowed_branches) > 0
     target := input.signals.git.target_branch
     not allowed_branches[target]
     msg := sprintf("branch-target-allowlist: checkout to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
 }
 
 # Deny switch to non-allowed branch from main worktree.
+# Empty allowed_branches → rule inert (LD3).
 deny[msg] if {
     input.program == "git"
     input.subcommand == "switch"
     repo_available_main_worktree
     target_is_local_branch
+    count(allowed_branches) > 0
     target := input.signals.git.target_branch
     not allowed_branches[target]
     msg := sprintf("branch-target-allowlist: switch to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
@@ -554,6 +558,15 @@ deny[msg] if {
 # Deny git worktree add/move/repair when canonicalized path ∉ allowed prefixes.
 # Boundary-enforced prefix match done in TS (canonicalizePath).
 # ──────────────────────────────────────────────────────────────────
+
+# Default allowed worktree dirs if data.config.worktree_allowed_dirs is absent.
+default_wt_dirs := {".worktrees", "worktrees"}
+
+worktree_allowed_dirs := dirs if {
+    dirs := data.config.worktree_allowed_dirs
+} else := default_wt_dirs if {
+    not data.config.worktree_allowed_dirs
+}
 
 # Helper: worktree subcommand that takes a path.
 worktree_path_subcommand if {
@@ -572,11 +585,13 @@ worktree_path_subcommand if {
 }
 
 # Deny when TS-side canonicalization flagged path as not allowed.
+# Empty worktree_allowed_dirs → rule inert (LD3).
 deny[msg] if {
     input.program == "git"
     worktree_path_subcommand
     input.signals.worktree.available == true
     input.signals.worktree.path_allowed == false
+    count(worktree_allowed_dirs) > 0
     reason := object.get(input.signals.worktree, "path_reject_reason", "unknown")
     path := object.get(input.signals.worktree, "target_path", "unknown")
     msg := sprintf("worktree-path-allowlist: %s for path '%s'", [reason, path])

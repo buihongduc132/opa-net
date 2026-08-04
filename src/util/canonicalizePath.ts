@@ -13,8 +13,39 @@
  * CVE references: CVE-2026-55607, CVE-2024-32002 (path traversal), OWASP Path Traversal.
  */
 
-import { realpathSync } from 'node:fs';
+import { realpathSync, existsSync } from 'node:fs';
 import { sep } from 'node:path';
+
+/** Check if a path exists (for walking up to find existing parent). */
+function pathExists(p: string): boolean {
+  try {
+    return existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve a path via realpath, walking up to find deepest existing ancestor. */
+function resolveWithWalkUp(target: string): string | null {
+  try {
+    return realpathSync(target);
+  } catch {
+    const { dirname, basename, join: joinPath, sep: pathSep } =
+      require('node:path') as typeof import('node:path');
+    let current = target;
+    const tailParts: string[] = [];
+    while (current !== pathSep && current !== '.' && !pathExists(current)) {
+      tailParts.unshift(basename(current));
+      current = dirname(current);
+    }
+    try {
+      const resolvedAncestor = realpathSync(current);
+      return tailParts.length > 0 ? joinPath(resolvedAncestor, ...tailParts) : resolvedAncestor;
+    } catch {
+      return null;
+    }
+  }
+}
 
 /** Result of path canonicalization. */
 export interface CanonicalizeResult {
@@ -49,16 +80,30 @@ export function canonicalizePath(
   target: string,
   allowedPrefixes: readonly string[],
 ): CanonicalizeResult {
-  // Step 1: realpath target.
+  // Step 1: realpath target. If fails (path doesn't exist yet — common for `worktree add`),
+  // resolve the deepest existing parent and append the non-existent tail.
   let resolvedTarget: string;
   try {
     resolvedTarget = realpathSync(target);
   } catch {
-    return {
-      allowed: false,
-      resolvedPrefixes: [],
-      reason: 'realpath-failed',
-    };
+    // Walk up to find the deepest existing ancestor, collecting the non-existent tail.
+    const { dirname, basename, join: joinPath, sep: pathSep } = require('node:path') as typeof import('node:path');
+    let current = target;
+    const tailParts: string[] = [];
+    while (current !== pathSep && current !== '.' && !pathExists(current)) {
+      tailParts.unshift(basename(current));
+      current = dirname(current);
+    }
+    try {
+      const resolvedAncestor = realpathSync(current);
+      resolvedTarget = tailParts.length > 0 ? joinPath(resolvedAncestor, ...tailParts) : resolvedAncestor;
+    } catch {
+      return {
+        allowed: false,
+        resolvedPrefixes: [],
+        reason: 'realpath-failed',
+      };
+    }
   }
 
   // Step 2: reject `..` segments (defense-in-depth).
@@ -83,14 +128,12 @@ export function canonicalizePath(
     };
   }
 
-  // Step 4: realpath each allowed prefix.
+  // Step 4: realpath each allowed prefix (with walk-up for non-existent prefixes).
   const resolvedPrefixes: string[] = [];
   for (const prefix of allowedPrefixes) {
-    try {
-      const resolved = realpathSync(prefix);
+    const resolved = resolveWithWalkUp(prefix);
+    if (resolved) {
       resolvedPrefixes.push(resolved);
-    } catch {
-      // Skip prefixes that don't resolve.
     }
   }
 

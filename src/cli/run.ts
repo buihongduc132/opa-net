@@ -312,9 +312,12 @@ function collectSignals(
   if (worktreeSignal?.target_path) {
     const targetPath = worktreeSignal.target_path;
     // Resolve relative to cwd.
-    const { resolve } = require('node:path') as typeof import('node:path');
+    const { resolve, isAbsolute } = require('node:path') as typeof import('node:path');
     const absTarget = resolve(cwd, targetPath);
-    const allowedDirs = config.worktreeAllowedDirs ?? [];
+    // Resolve relative allowed dirs against cwd.
+    const allowedDirs = (config.worktreeAllowedDirs ?? []).map((d) =>
+      isAbsolute(d) ? d : resolve(cwd, d),
+    );
     const canon = canonicalizePath(absTarget, allowedDirs);
     (signals as Record<string, Record<string, unknown>>).worktree = {
       ...worktreeSignal,

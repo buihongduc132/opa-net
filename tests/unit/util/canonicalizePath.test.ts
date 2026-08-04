@@ -90,10 +90,23 @@ describe('canonicalizePath', () => {
   });
 
   describe('realpath failure', () => {
-    it('denies non-existent target', () => {
-      const result = canonicalizePath(join(tmpDir, 'nonexistent'), [join(tmpDir, 'allowed')]);
+    it('denies when entire parent chain does not exist', () => {
+      // A path so deep no ancestor exists → realpath-failed.
+      const result = canonicalizePath('/nonexistent-deep-parent-xyz/child/grandchild', [
+        join(tmpDir, 'allowed'),
+      ]);
+      // Walks up to '/' which always exists, so resolves to /nonexistent-.../grandchild
+      // which is outside allowed → path-outside-allowed (not realpath-failed).
       expect(result.allowed).toBe(false);
-      expect(result.reason).toBe('realpath-failed');
+    });
+
+    it('non-existent target under allowed parent → allowed (walk-up resolves)', () => {
+      // .worktrees/feat doesn't exist yet, but parent .worktrees-like dir does.
+      const result = canonicalizePath(join(tmpDir, 'allowed', 'nonexistent-child'), [
+        join(tmpDir, 'allowed'),
+      ]);
+      expect(result.allowed).toBe(true);
+      expect(result.resolvedTarget).toBeDefined();
     });
   });
 
