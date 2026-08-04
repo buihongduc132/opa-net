@@ -40,7 +40,7 @@ let allowedDir: string;
 beforeAll(() => {
   mkdirSync(auditDir, { recursive: true });
 
-  // Clean up stale artifacts from prior runs (verifier caught stale e-file-restore-allow.jsonl).
+  // Clean up stale artifacts from prior runs.
   try {
     rmSync(auditDir, { recursive: true, force: true });
     mkdirSync(auditDir, { recursive: true });
@@ -52,16 +52,16 @@ beforeAll(() => {
 
   // Create main fixture repo.
   fixtureRepo = mkdtempSync(join(tmpdir(), 'opa-fixture-'));
-  execSync(`git init -b main`, { cwd: fixtureRepo, stdio: 'ignore' });
-  execSync(`git config user.email test@test.com`, { cwd: fixtureRepo, stdio: 'ignore' });
-  execSync(`git config user.name test`, { cwd: fixtureRepo, stdio: 'ignore' });
+  execSync(`git init -b main`, { cwd: fixtureRepo, stdio: 'ignore', timeout: 15000 });
+  execSync(`git config user.email test@test.com`, { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync(`git config user.name test`, { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   writeFileSync(join(fixtureRepo, 'README.md'), '# test\n');
-  execSync(`git add -A && git commit -m init`, { cwd: fixtureRepo, stdio: 'ignore' });
+  execSync(`git add -A && git commit -m init`, { cwd: fixtureRepo, stdio: 'ignore', timeout: 15000 });
   // Create allowed branches.
-  execSync(`git branch dev`, { cwd: fixtureRepo, stdio: 'ignore' });
-  execSync(`git branch staging`, { cwd: fixtureRepo, stdio: 'ignore' });
+  execSync(`git branch dev`, { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync(`git branch staging`, { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   // Create non-allowed branch.
-  execSync(`git branch feature-evil`, { cwd: fixtureRepo, stdio: 'ignore' });
+  execSync(`git branch feature-evil`, { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
 
   // Create /tmp/evil dir (denied worktree target).
   evilDir = mkdtempSync(join(tmpdir(), 'evil-'));
@@ -261,6 +261,35 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     }
   });
 
+  it('(j) git -C <other-repo> worktree add → cwd propagated to signals (LD8)', () => {
+    // Create a SEPARATE main repo.
+    const otherRepo = mkdtempSync(join(tmpdir(), 'opa-fixture-other-'));
+    try {
+      execSync(`git init -b main`, { cwd: otherRepo, stdio: 'ignore' });
+      execSync(`git config user.email test@test.com`, { cwd: otherRepo, stdio: 'ignore' });
+      execSync(`git config user.name test`, { cwd: otherRepo, stdio: 'ignore' });
+      writeFileSync(join(otherRepo, 'README.md'), '# other\n');
+      execSync(`git add -A && git commit -m init`, { cwd: otherRepo, stdio: 'ignore' });
+
+      // Run from fixtureRepo cwd, but target -C <otherRepo> worktree add /tmp/evil.
+      const evilPath = join(evilDir, 'wt-via-C');
+      const result = runCli(`git -C ${otherRepo} worktree add ${evilPath}`, fixtureRepo);
+      writeAudit('j-cwd-propagation-deny', result, `git -C ${otherRepo} worktree add ${evilPath} (from ${fixtureRepo})`);
+
+      // Must DENY because /tmp/evil is outside otherRepo's allowed dirs.
+      expect(result.exitCode).toBe(2);
+      expect(result.record?.decision).toBe('deny');
+
+      // Verify signals reflect OTHER repo, not the process.cwd() repo.
+      const signals = result.record?.signals as { repo?: { name?: string } } | undefined;
+      expect(signals?.repo?.name).toBeDefined();
+      // The repo name should be from otherRepo (basename), not fixtureRepo.
+      const otherName = require('node:path').basename(otherRepo);
+      expect(signals?.repo?.name).toBe(otherName);
+    } finally {
+      rmSync(otherRepo, { recursive: true, force: true });
+    }
+  });
   it('audit logs exist on disk for third-party verification', () => {
     // Verify proof files exist.
     expect(existsSync(join(auditDir, 'a-checkout-non-allowed-deny.jsonl'))).toBe(true);

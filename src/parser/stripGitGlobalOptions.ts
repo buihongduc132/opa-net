@@ -7,6 +7,8 @@
  * the subcommand classifier sees the real subcommand.
  *
  * Handles both space-separated (`-C /path`) and `=`-joined (`-C=/path`) forms.
+ *
+ * Returns the stripped args AND any captured -C <path> value (for cwd propagation).
  */
 
 /** Global options that consume the next arg as a value. */
@@ -36,12 +38,29 @@ const GLOBAL_OPTIONS_NO_VALUE = new Set([
   '--info-path',
 ]);
 
+/** Result of stripping git global options. */
+export interface StripResult {
+  /** The args with global options removed. */
+  readonly args: string[];
+  /** The captured -C <path> value, if present (for cwd propagation). */
+  readonly cPath?: string;
+}
+
 /**
  * Strip known git global options from the args array.
  * Returns a new array with globals removed.
  */
 export function stripGitGlobalOptions(args: readonly string[]): string[] {
+  return stripWithMeta(args).args;
+}
+
+/**
+ * Strip git global options AND capture -C <path> for cwd propagation.
+ * This is the full version that returns metadata about what was stripped.
+ */
+export function stripWithMeta(args: readonly string[]): StripResult {
   const result: string[] = [];
+  let cPath: string | undefined;
   let i = 0;
 
   while (i < args.length) {
@@ -51,7 +70,9 @@ export function stripGitGlobalOptions(args: readonly string[]): string[] {
     const eqIdx = arg.indexOf('=');
     if (eqIdx !== -1) {
       const key = arg.slice(0, eqIdx);
+      const value = arg.slice(eqIdx + 1);
       if (GLOBAL_OPTIONS_WITH_VALUE.has(key)) {
+        if (key === '-C') cPath = value;
         i++; // skip this arg entirely
         continue;
       }
@@ -59,6 +80,9 @@ export function stripGitGlobalOptions(args: readonly string[]): string[] {
 
     // Check for space-separated form: -C /path
     if (GLOBAL_OPTIONS_WITH_VALUE.has(arg)) {
+      if (arg === '-C' && i + 1 < args.length) {
+        cPath = args[i + 1];
+      }
       i += 2; // skip option + its value
       continue;
     }
@@ -74,5 +98,5 @@ export function stripGitGlobalOptions(args: readonly string[]): string[] {
     i++;
   }
 
-  return result;
+  return { args: result, cPath };
 }

@@ -89,7 +89,8 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
   });
 
   // Collect signals for git commands (lazy: only when program === 'git').
-  const cwd = process.cwd();
+  // LD8: Use parsed.gitCwd (from -C <path>) if present, otherwise process.cwd().
+  const baseCwd = process.cwd();
   const collectors = [new RepoSignals(), new WorktreeSignals(), new EnvSignals()];
 
   // Compound commands (joined by ';'): split and evaluate EACH segment.
@@ -103,7 +104,7 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
     builder,
     unlockKeys,
     hasKeys,
-    cwd,
+    baseCwd,
     collectors,
   });
 
@@ -129,11 +130,11 @@ async function evaluatePossiblyCompound(
     builder: DecisionBuilder;
     unlockKeys: readonly string[];
     hasKeys: boolean;
-    cwd: string;
+    baseCwd: string;
     collectors: readonly import('../signals/types.ts').SignalCollector[];
   },
 ): Promise<DecisionOutput> {
-  const { parser, engine, config, builder, unlockKeys, hasKeys, cwd, collectors } = deps;
+  const { parser, engine, config, builder, unlockKeys, hasKeys, baseCwd, collectors } = deps;
 
   // Split on ';' but only treat as compound if more than one non-empty segment.
   const segments = raw
@@ -144,7 +145,9 @@ async function evaluatePossiblyCompound(
   if (segments.length <= 1) {
     // Single command path — unchanged behavior.
     const parsed = parser.parse(raw);
-    const signals = collectSignals(parsed, cwd, raw, config, collectors);
+    // LD8: Use parsed.gitCwd (from -C <path>) if present, otherwise baseCwd.
+    const effectiveCwd = parsed.gitCwd ?? baseCwd;
+    const signals = collectSignals(parsed, effectiveCwd, raw, config, collectors);
     const engineDecision = await engine.evaluate(parsed, signals);
     return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
   }
@@ -153,7 +156,8 @@ async function evaluatePossiblyCompound(
   let denyOutput: DecisionOutput | undefined;
   for (const segment of segments) {
     const parsed = parser.parse(segment);
-    const signals = collectSignals(parsed, cwd, segment, config, collectors);
+    const effectiveCwd = parsed.gitCwd ?? baseCwd;
+    const signals = collectSignals(parsed, effectiveCwd, segment, config, collectors);
     const engineDecision = await engine.evaluate(parsed, signals);
     const output = buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
     if (output.decision === 'deny' && output.action === 'block') {
@@ -168,7 +172,8 @@ async function evaluatePossiblyCompound(
 
   // All segments allowed — return an allow decision based on the first segment.
   const firstParsed = parser.parse(segments[0] ?? '');
-  const firstSignals = collectSignals(firstParsed, cwd, segments[0] ?? '', config, collectors);
+  const firstEffectiveCwd = firstParsed.gitCwd ?? baseCwd;
+  const firstSignals = collectSignals(firstParsed, firstEffectiveCwd, segments[0] ?? '', config, collectors);
   const firstEngineDecision = await engine.evaluate(firstParsed, firstSignals);
   return buildDecision(firstParsed, firstEngineDecision, {
     config,
