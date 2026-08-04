@@ -76,13 +76,18 @@
       "type": "number",
       "minimum": 0,
       "description": "Wall-clock time from input received to decision emitted. For perf monitoring / OPA cold-start detection (relevant to lazy-load topology [LD2])."
+    },
+
+    "signals": {
+      "type": ["object", "null"],
+      "description": "Collected runtime signals (provenance): git.*, repo.*, worktree.*, env.*. Absent when no signals collected (non-git commands). Each value is the raw signal collector output.",
+      "additionalProperties": true
     }
   },
 
   "$defs": {
     "Reason": {
       "type": "object",
-      "required": ["rule_id", "message"],
       "additionalProperties": false,
       "properties": {
         "rule_id": {

@@ -10,10 +10,20 @@ import { DecisionBuilder, type DecisionOutput } from '../output/DecisionBuilder.
 import { OutputFormatter, validateDecision } from '../output/OutputFormatter.ts';
 import type { CommandParser, ParsedCommand } from '../parser/index.ts';
 import { CommandParserCoordinator } from '../parser/index.ts';
+import { classifyCheckoutTarget } from '../parser/checkoutTarget.ts';
 import { RULES, RuleRegistry } from '../rules/index.ts';
+import {
+  EnvSignals,
+  RepoSignals,
+  WorktreeSignals,
+  collectAll,
+  type Signals,
+} from '../signals/index.ts';
+import type { SignalContext } from '../signals/types.ts';
 import { SaltResolver } from '../unlock/SaltResolver.ts';
 import { UnlockFilter } from '../unlock/UnlockFilter.ts';
 import type { UnlockResult } from '../unlock/types.ts';
+import { canonicalizePath } from '../util/canonicalizePath.ts';
 
 export interface CliOptions {
   /** Command string to evaluate. If omitted, read from stdin. */
@@ -78,6 +88,11 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
     digest: engine.rulebookDigest(),
   });
 
+  // Collect signals for git commands (lazy: only when program === 'git').
+  // LD8: Use parsed.gitCwd (from -C <path>) if present, otherwise process.cwd().
+  const baseCwd = process.cwd();
+  const collectors = [new RepoSignals(), new WorktreeSignals(), new EnvSignals()];
+
   // Compound commands (joined by ';'): split and evaluate EACH segment.
   // If ANY segment is denied, the whole command is denied. This catches
   // env-prefixed commands like `export FOO=bar; git stash pop` where
@@ -89,6 +104,8 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
     builder,
     unlockKeys,
     hasKeys,
+    baseCwd,
+    collectors,
   });
 
   // Hard internal gate: the record MUST validate against the schema before emit.
@@ -113,9 +130,11 @@ async function evaluatePossiblyCompound(
     builder: DecisionBuilder;
     unlockKeys: readonly string[];
     hasKeys: boolean;
+    baseCwd: string;
+    collectors: readonly import('../signals/types.ts').SignalCollector[];
   },
 ): Promise<DecisionOutput> {
-  const { parser, engine, config, builder, unlockKeys, hasKeys } = deps;
+  const { parser, engine, config, builder, unlockKeys, hasKeys, baseCwd, collectors } = deps;
 
   // Split on ';' but only treat as compound if more than one non-empty segment.
   const segments = raw
@@ -126,16 +145,21 @@ async function evaluatePossiblyCompound(
   if (segments.length <= 1) {
     // Single command path — unchanged behavior.
     const parsed = parser.parse(raw);
-    const engineDecision = await engine.evaluate(parsed);
-    return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys });
+    // LD8: Use parsed.gitCwd (from -C <path>) if present, otherwise baseCwd.
+    const effectiveCwd = parsed.gitCwd ?? baseCwd;
+    const signals = collectSignals(parsed, effectiveCwd, raw, config, collectors);
+    const engineDecision = await engine.evaluate(parsed, signals);
+    return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
   }
 
   // Compound path: evaluate each segment, deny wins.
   let denyOutput: DecisionOutput | undefined;
   for (const segment of segments) {
     const parsed = parser.parse(segment);
-    const engineDecision = await engine.evaluate(parsed);
-    const output = buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys });
+    const effectiveCwd = parsed.gitCwd ?? baseCwd;
+    const signals = collectSignals(parsed, effectiveCwd, segment, config, collectors);
+    const engineDecision = await engine.evaluate(parsed, signals);
+    const output = buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
     if (output.decision === 'deny' && output.action === 'block') {
       denyOutput = output;
       break; // first deny wins
@@ -148,12 +172,15 @@ async function evaluatePossiblyCompound(
 
   // All segments allowed — return an allow decision based on the first segment.
   const firstParsed = parser.parse(segments[0] ?? '');
-  const firstEngineDecision = await engine.evaluate(firstParsed);
+  const firstEffectiveCwd = firstParsed.gitCwd ?? baseCwd;
+  const firstSignals = collectSignals(firstParsed, firstEffectiveCwd, segments[0] ?? '', config, collectors);
+  const firstEngineDecision = await engine.evaluate(firstParsed, firstSignals);
   return buildDecision(firstParsed, firstEngineDecision, {
     config,
     builder,
     unlockKeys,
     hasKeys,
+    signals: firstSignals,
   });
 }
 
@@ -166,19 +193,20 @@ function buildDecision(
     builder: DecisionBuilder;
     unlockKeys: readonly string[];
     hasKeys: boolean;
+    signals?: Signals;
   },
 ): DecisionOutput {
-  const { config, builder, unlockKeys, hasKeys } = deps;
+  const { config, builder, unlockKeys, hasKeys, signals } = deps;
 
   let output: DecisionOutput;
 
   if (engineDecision.source === 'fail-open' && hasKeys) {
     // LD-G1: OPA down + keys present → fail-open-keyless (NOT opa-unlocked).
-    output = builder.build(parsed, engineDecision);
+    output = builder.build(parsed, engineDecision, { signals });
     output = { ...output, source: 'fail-open-keyless' };
   } else if (!hasKeys || engineDecision.decision === 'allow') {
     // No keys or engine said allow → no unlock filtering.
-    output = builder.build(parsed, engineDecision);
+    output = builder.build(parsed, engineDecision, { signals });
   } else {
     // Engine said deny + keys present → run unlock filter [D1].
     let unlockResult: UnlockResult | undefined;
@@ -199,10 +227,10 @@ function buildDecision(
     }
 
     if (filterCrashed) {
-      output = builder.build(parsed, engineDecision);
+      output = builder.build(parsed, engineDecision, { signals });
       output = { ...output, source: 'unlock-filter-error' };
     } else {
-      output = builder.build(parsed, engineDecision, { unlockResult });
+      output = builder.build(parsed, engineDecision, { unlockResult, signals });
     }
   }
 
@@ -253,4 +281,60 @@ export function defaultPolicyPath(): string {
   // import.meta.dir is available under Bun; fall back to cwd-relative for Node.
   const here = (import.meta as { dir?: string }).dir ?? process.cwd();
   return resolve(here, '../../policy/safety.rego');
+}
+
+/**
+ * Collect signals for a parsed git command and canonicalize worktree paths.
+ * Returns a merged Signals object ready to inject into the OPA input.
+ */
+function collectSignals(
+  parsed: ParsedCommand,
+  cwd: string,
+  raw: string,
+  config: EngineConfig,
+  collectors: readonly import('../signals/types.ts').SignalCollector[],
+): Signals | undefined {
+  if (parsed.program !== 'git') {
+    return undefined;
+  }
+
+  const ctx: SignalContext = { cwd, raw, parsed };
+  const signals = collectAll(collectors, ctx);
+
+  // Enrich git signals with target_branch classification (LD7).
+  if (parsed.subcommand === 'checkout' || parsed.subcommand === 'switch') {
+    const target = classifyCheckoutTarget(parsed.args, cwd);
+    (signals as Record<string, Record<string, unknown>>).git = {
+      available: true,
+      current_branch: null, // not collected here — RepoSignals could be extended
+      target_branch: target.kind === 'branch' ? target.name : null,
+      target_kind: target.kind,
+    };
+  }
+
+  // Canonicalize worktree target path (LD6) and add to signals.
+  const worktreeSignal = signals.worktree as
+    | { target_path?: string | null; available?: boolean }
+    | undefined;
+  if (worktreeSignal?.target_path) {
+    const targetPath = worktreeSignal.target_path;
+    // Resolve relative to cwd.
+    const { resolve, isAbsolute } = require('node:path') as typeof import('node:path');
+    const absTarget = resolve(cwd, targetPath);
+    // Resolve relative allowed dirs against cwd.
+    const allowedDirs = (config.worktreeAllowedDirs ?? []).map((d) =>
+      isAbsolute(d) ? d : resolve(cwd, d),
+    );
+    const canon = canonicalizePath(absTarget, allowedDirs);
+    (signals as Record<string, Record<string, unknown>>).worktree = {
+      ...worktreeSignal,
+      target_path: absTarget,
+      resolved_path: canon.resolvedTarget ?? absTarget,
+      path_allowed: canon.allowed,
+      path_reject_reason: canon.reason,
+      resolved_allowed_prefixes: canon.resolvedPrefixes,
+    };
+  }
+
+  return signals;
 }

@@ -4,6 +4,7 @@ import type { EngineConfig } from '../config/Config.ts';
 import type { EngineDecision, RawDeny } from '../engine/types.ts';
 import type { ParsedCommand } from '../parser/types.ts';
 import { type RuleMeta, type RuleRegistry, inferFamilyFromProgram } from '../rules/index.ts';
+import type { Signals } from '../signals/types.ts';
 import type { UnlockResult } from '../unlock/types.ts';
 import { PI_OPA_NET_VERSION } from '../version.ts';
 
@@ -28,6 +29,8 @@ export interface DecisionOutput {
   readonly evaluated_at: string;
   readonly decision_id: string;
   readonly duration_ms: number;
+  /** Optional collected signals (provenance) — added by context/signals feature. */
+  readonly signals?: Readonly<Record<string, unknown>>;
 }
 
 export interface Reason {
@@ -92,7 +95,7 @@ export class DecisionBuilder {
   build(
     parsed: ParsedCommand,
     engine: EngineDecision,
-    opts?: { unlockResult?: UnlockResult },
+    opts?: { unlockResult?: UnlockResult; signals?: Signals },
   ): DecisionOutput {
     const unlockResult = opts?.unlockResult;
     const reasons =
@@ -152,6 +155,7 @@ export class DecisionBuilder {
       evaluated_at: (this.deps.now ?? (() => new Date()))().toISOString(),
       decision_id: (this.deps.uuid ?? randomUUID)(),
       duration_ms: engine.durationMs,
+      signals: opts?.signals as Readonly<Record<string, unknown>> | undefined,
     };
   }
 

@@ -501,6 +501,103 @@ deny[msg] if {
 }
 
 # ──────────────────────────────────────────────────────────────────
+# GROUP G — branch-target-allowlist (LD1)
+# Deny git checkout/switch <X> when X ∉ allowed set AND in main worktree.
+# signals.repo.is_main_worktree must be true (sub-worktrees roam free).
+# ──────────────────────────────────────────────────────────────────
+
+# Default allowed branches if data.config.allowed_branches is absent.
+default_branches := {"dev", "staging", "main", "master"}
+
+allowed_branches := branches if {
+    branches := data.config.allowed_branches
+} else := default_branches if {
+    not data.config.allowed_branches
+}
+
+# Helper: signals.repo available and is_main_worktree is true.
+repo_available_main_worktree if {
+    input.signals.repo.available == true
+    input.signals.repo.is_main_worktree == true
+}
+
+# Helper: target resolves as a local branch ref.
+target_is_local_branch if {
+    input.signals.git.target_kind == "branch"
+    input.signals.git.target_branch != null
+}
+
+# Deny checkout to non-allowed branch from main worktree.
+# Empty allowed_branches → rule inert (LD3).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "checkout"
+    repo_available_main_worktree
+    target_is_local_branch
+    count(allowed_branches) > 0
+    target := input.signals.git.target_branch
+    not allowed_branches[target]
+    msg := sprintf("branch-target-allowlist: checkout to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
+}
+
+# Deny switch to non-allowed branch from main worktree.
+# Empty allowed_branches → rule inert (LD3).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "switch"
+    repo_available_main_worktree
+    target_is_local_branch
+    count(allowed_branches) > 0
+    target := input.signals.git.target_branch
+    not allowed_branches[target]
+    msg := sprintf("branch-target-allowlist: switch to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP H — worktree-path-allowlist (LD5, LD6)
+# Deny git worktree add/move/repair when canonicalized path ∉ allowed prefixes.
+# Boundary-enforced prefix match done in TS (canonicalizePath).
+# ──────────────────────────────────────────────────────────────────
+
+# Default allowed worktree dirs if data.config.worktree_allowed_dirs is absent.
+default_wt_dirs := {".worktrees", "worktrees"}
+
+worktree_allowed_dirs := dirs if {
+    dirs := data.config.worktree_allowed_dirs
+} else := default_wt_dirs if {
+    not data.config.worktree_allowed_dirs
+}
+
+# Helper: worktree subcommand that takes a path.
+worktree_path_subcommand if {
+    input.subcommand == "worktree"
+    input.args[0] == "add"
+}
+
+worktree_path_subcommand if {
+    input.subcommand == "worktree"
+    input.args[0] == "move"
+}
+
+worktree_path_subcommand if {
+    input.subcommand == "worktree"
+    input.args[0] == "repair"
+}
+
+# Deny when TS-side canonicalization flagged path as not allowed.
+# Empty worktree_allowed_dirs → rule inert (LD3).
+deny[msg] if {
+    input.program == "git"
+    worktree_path_subcommand
+    input.signals.worktree.available == true
+    input.signals.worktree.path_allowed == false
+    count(worktree_allowed_dirs) > 0
+    reason := object.get(input.signals.worktree, "path_reject_reason", "unknown")
+    path := object.get(input.signals.worktree, "target_path", "unknown")
+    msg := sprintf("worktree-path-allowlist: %s for path '%s'", [reason, path])
+}
+
+# ──────────────────────────────────────────────────────────────────
 # USAGE
 # ──────────────────────────────────────────────────────────────────
 # After your parser normalizes a raw command into the input struct:

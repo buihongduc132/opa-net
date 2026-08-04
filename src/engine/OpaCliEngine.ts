@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { EngineConfig } from '../config/Config.ts';
 import type { ParsedCommand } from '../parser/types.ts';
+import type { Signals } from '../signals/types.ts';
 import { sha256Prefix } from '../util/digest.ts';
 import type { DecisionEngine, EngineDecision, RawDeny } from './types.ts';
 
@@ -32,16 +33,31 @@ export class OpaCliEngine implements DecisionEngine {
     this.opaVersion = opaVersion;
   }
 
-  async evaluate(parsed: ParsedCommand): Promise<EngineDecision> {
-    const input = {
+  async evaluate(parsed: ParsedCommand, signals?: Signals): Promise<EngineDecision> {
+    const input: Record<string, unknown> = {
       program: parsed.program,
       subcommand: parsed.subcommand,
       args: parsed.args,
       raw: parsed.raw,
     };
+
+    // Merge signals into input if provided.
+    if (signals) {
+      input.signals = signals;
+    }
+
     const inputJson = JSON.stringify(input);
     const query = '{"allow": data.safety.allow, "deny": data.safety.deny}';
     const args = ['eval', '--format', 'json', '-d', this.config.policyPath];
+
+    // Build data bundle with config (allowed_branches, worktree_allowed_dirs).
+    const dataBundle: Record<string, unknown> = {};
+    if (this.config.allowedBranches) {
+      dataBundle.config = {
+        allowed_branches: this.config.allowedBranches,
+        worktree_allowed_dirs: this.config.worktreeAllowedDirs ?? [],
+      };
+    }
 
     const start = Date.now();
     let tmpDir: string | null = null;
@@ -49,7 +65,17 @@ export class OpaCliEngine implements DecisionEngine {
       tmpDir = mkdtempSync(join(tmpdir(), 'pi-opa-'));
       const inFile = join(tmpDir, 'in.json');
       writeFileSync(inFile, inputJson);
-      const fullArgs = [...args, '-i', inFile, query];
+
+      const fullArgs = [...args];
+
+      // If data bundle has config, write it and pass via --data.
+      if (Object.keys(dataBundle).length > 0) {
+        const dataFile = join(tmpDir, 'data.json');
+        writeFileSync(dataFile, JSON.stringify(dataBundle));
+        fullArgs.push('--data', dataFile);
+      }
+
+      fullArgs.push('-i', inFile, query);
       const { stdout } = await execFileAsync(this.resolveBinary(), fullArgs, {
         timeout: this.config.timeoutMs,
         maxBuffer: 4 * 1024 * 1024,
