@@ -54,6 +54,13 @@ has_arg_prefix(args, prefixes) if {
     startswith(a, p)
 }
 
+# True if the verb token sits in subcommand position (args[0]) — avoids
+# matching user-controlled values (e.g. `pm2 start app --name restart`).
+first_arg_in(args, tokens) if {
+    some t in tokens
+    args[0] == t
+}
+
 # ──────────────────────────────────────────────────────────────────
 # GROUP A — git subcommand + blocked arg tokens
 # (rule family: command + subcommand + block_args[])
@@ -317,6 +324,76 @@ deny[msg] if {
     msg := "Removing symlink subdirs in beads/ skill is blocked (rule is misnamed 'allow')."
 }
 
+# block-rm-rf-dangerous-target — guard against `rm -rf` on broad/cwd/system paths.
+# Parser caveat: shell-quote expands globs (`*`, `/*`) and env vars (`$HOME`)
+# during parsing, so those tokens vanish from input.args but survive in input.raw.
+# We therefore check BOTH args (exact targets) and raw (regex fallback).
+
+# Recursive flag: -r | -R | --recursive | combined short cluster containing r/R
+rm_has_recursive(args) if { has_any_arg(args, ["-r", "-R", "--recursive"]) }
+rm_has_recursive(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "r")
+}
+rm_has_recursive(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "R")
+}
+
+# Force flag: -f | --force | combined short cluster containing f
+rm_has_force(args) if { has_any_arg(args, ["-f", "--force"]) }
+rm_has_force(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "f")
+}
+
+# Non-flag target arguments
+rm_targets(args) := [t | some t in args; not startswith(t, "-")]
+
+# Dangerous targets visible in args (parser preserves literal ., .., /, ~, etc.)
+rm_dangerous_arg_targets := ["/", "~", "$HOME", ".", "..", "/home", "/*", "~/*"]
+
+rm_has_dangerous_arg_target(args) if {
+    some t in rm_targets(args)
+    t == rm_dangerous_arg_targets[_]
+}
+
+# Dangerous tokens that disappear from args due to shell expansion (globs, env vars).
+# Matched as standalone words (whitespace or string boundary) in input.raw.
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)/\\*(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)~(/\\*)?(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)\\$HOME(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)/home(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)/(\\s|$)", raw) }
+rm_raw_dangerous_token(raw) if { regex.match("(^|\\s)\\*(\\s|$)", raw) }
+
+# Args-based deny: dangerous literal target present in args
+deny[msg] if {
+    input.program == "rm"
+    rm_has_recursive(input.args)
+    rm_has_force(input.args)
+    rm_has_dangerous_arg_target(input.args)
+    msg := "rm -rf on dangerous targets (/, ~, ., .., *, /*, $HOME, /home) is blocked. Use specific paths like /tmp/dir or ./subdir."
+}
+
+# Raw-based deny: dangerous glob/env token present in raw (disappeared from args)
+deny[msg] if {
+    input.program == "rm"
+    rm_has_recursive(input.args)
+    rm_has_force(input.args)
+    rm_raw_dangerous_token(input.raw)
+    msg := "rm -rf on dangerous targets (/, ~, ., .., *, /*, $HOME, /home) is blocked. Use specific paths like /tmp/dir or ./subdir."
+}
+
 # ──────────────────────────────────────────────────────────────────
 # GROUP F — gh / glab repo lifecycle
 # ──────────────────────────────────────────────────────────────────
@@ -354,6 +431,439 @@ deny[msg] if {
     input.subcommand == "repo"
     has_any_arg(input.args, ["--public"])
     msg := "Public GitLab repository creation is blocked by default."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP G — tmux / pkill / killall session protection
+# (cc-safety-net parity: block-tmux-kill-server, block-tmux-kill-session,
+#  block-pkill-tmux-wezterm, block-killall-tmux-wezterm)
+#
+# The pi-opa-net parser treats tmux/pkill/killall as non-subcommand programs,
+# so the kill verb lands in input.args. Messages are copied verbatim from the
+# canonical rulebook reason field.
+# ──────────────────────────────────────────────────────────────────
+
+session_kill_targets := ["tmux", "wezterm", "wezterm-mux-server", "herdr", "bermuda"]
+
+deny[msg] if {
+    input.program == "tmux"
+    has_any_arg(input.args, ["kill-server"])
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+deny[msg] if {
+    input.program == "tmux"
+    has_any_arg(input.args, ["kill-session"])
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+deny[msg] if {
+    input.program == "pkill"
+    has_any_arg(input.args, session_kill_targets)
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+deny[msg] if {
+    input.program == "killall"
+    has_any_arg(input.args, session_kill_targets)
+    msg := "Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically — hand the exact command back to the user and let them run it themselves."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP H — herdr session protection
+# (herdr is a terminal workspace manager for AI coding agents;
+#  killing it destroys active workspaces, sessions, and agent state.)
+# ──────────────────────────────────────────────────────────────────
+
+# Block `herdr server stop` — stops the herdr daemon.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["server"])
+    has_any_arg(input.args, ["stop"])
+    msg := "Stopping the herdr server destroys all active workspaces, sessions, and agent state. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `herdr session stop <name>` — stops a named session.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["session"])
+    has_any_arg(input.args, ["stop"])
+    msg := "Stopping a herdr session destroys in-flight agent work. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `herdr session delete <name>` — deletes a stopped session.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["session"])
+    has_any_arg(input.args, ["delete"])
+    msg := "Deleting a herdr session removes persisted state. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `herdr workspace close <name>` — closes a workspace.
+deny[msg] if {
+    input.program == "herdr"
+    has_any_arg(input.args, ["workspace"])
+    has_any_arg(input.args, ["close"])
+    msg := "Closing a herdr workspace destroys active agent state. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP I — pulumi IaC safety
+# (pulumi up --force / auto-approve bypasses the deployment preview;
+#  destroy / stack rm / state delete are irreversible stack operations.)
+# ──────────────────────────────────────────────────────────────────
+
+# Block `pulumi up --force` and preview-bypassing flags.
+deny[msg] if {
+    input.program == "pulumi"
+    input.subcommand == "up"
+    has_any_arg(input.args, ["--force", "-f", "--skip-preview", "--yes", "-y"])
+    msg := "pulumi up with --force/--yes/--skip-preview bypasses the deployment preview and applies changes without review. Run `pulumi preview` and apply only with explicit approval."
+}
+
+# Block `pulumi destroy` — tears down every resource in the stack.
+deny[msg] if {
+    input.program == "pulumi"
+    input.subcommand == "destroy"
+    msg := "pulumi destroy tears down ALL resources in the stack. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `pulumi stack rm` — deletes the stack and its state.
+deny[msg] if {
+    input.program == "pulumi"
+    input.subcommand == "stack"
+    has_any_arg(input.args, ["rm", "remove"])
+    msg := "pulumi stack rm deletes the stack and its state. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+# Block `pulumi state delete` — removes resources from state (orphans real infra).
+deny[msg] if {
+    input.program == "pulumi"
+    input.subcommand == "state"
+    has_any_arg(input.args, ["delete", "unprotect"])
+    msg := "pulumi state delete/unprotect mutates stack state and can orphan or expose real infrastructure. Do NOT run this automatically."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP J — DevOps destructive-CLI coverage
+# (terraform/tofu/terragrunt, nomad, consul, vault, aws, pm2,
+#  systemctl, dd; plus docker-compose v1 binary GROUP C parity.)
+# All literal messages (Approach A): parity-test safe + LD-L1 stable
+# rule_ids for unlock keys.
+# ──────────────────────────────────────────────────────────────────
+
+iac_programs := {"terraform", "tofu", "terragrunt"}
+
+# Auto-approve flag in either exact or =value form.
+iac_autoapprove(args) if {
+    has_any_arg(args, ["-auto-approve", "--auto-approve", "-y"])
+}
+iac_autoapprove(args) if {
+    has_arg_prefix(args, ["-auto-approve=", "--auto-approve="])
+}
+
+deny[msg] if {
+    input.program in iac_programs
+    input.subcommand == "destroy"
+    msg := "terraform/tofu/terragrunt destroy tears down ALL resources managed by the stack. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program in iac_programs
+    input.subcommand == "apply"
+    iac_autoapprove(input.args)
+    msg := "terraform/tofu/terragrunt apply -auto-approve bypasses the plan review prompt. Run `terraform plan` and apply only with explicit approval."
+}
+
+deny[msg] if {
+    input.program in iac_programs
+    input.subcommand == "state"
+    has_any_arg(input.args, ["rm", "delete"])
+    msg := "terraform/tofu/terragrunt state rm/delete removes resources from state and can orphan real infrastructure. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "terragrunt"
+    input.subcommand == "run"
+    has_any_arg(input.args, ["destroy"])
+    msg := "terragrunt run destroy applies a destroy plan across the module tree. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "terragrunt"
+    input.subcommand == "run"
+    has_any_arg(input.args, ["apply"])
+    iac_autoapprove(input.args)
+    msg := "terragrunt run apply --auto-approve bypasses plan review across every module in the tree. Apply only with explicit approval."
+}
+
+deny[msg] if {
+    input.program == "nomad"
+    input.subcommand == "job"
+    has_any_arg(input.args, ["stop", "deregister"])
+    msg := "nomad job stop/deregister tears down scheduled work. Re-deploy via the Nomad job specification instead of manual stops."
+}
+
+deny[msg] if {
+    input.program == "nomad"
+    input.subcommand == "alloc"
+    has_any_arg(input.args, ["stop", "signal", "restart"])
+    msg := "Direct alloc stop/signal/restart bypasses scheduler safety. Use deployment-level operations instead."
+}
+
+deny[msg] if {
+    input.program == "nomad"
+    input.subcommand == "system"
+    has_any_arg(input.args, ["gc"])
+    msg := "nomad system gc force-garbage-collects the cluster and can disrupt running work. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "nomad"
+    input.subcommand == "node"
+    has_any_arg(input.args, ["drain", "eligibility"])
+    msg := "nomad node drain/eligibility evicts all allocations from a node. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "nomad"
+    input.subcommand == "deployment"
+    has_any_arg(input.args, ["fail", "pause"])
+    msg := "nomad deployment fail/pause aborts a rolling deployment mid-flight. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "nomad"
+    input.subcommand == "volume"
+    has_any_arg(input.args, ["detach"])
+    msg := "nomad volume detach detaches storage from running work. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "consul"
+    input.subcommand == "kv"
+    has_any_arg(input.args, ["delete"])
+    msg := "consul kv delete removes cluster configuration state. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "consul"
+    input.subcommand == "services"
+    has_any_arg(input.args, ["deregister"])
+    msg := "consul services deregister breaks service discovery for the node. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "consul"
+    input.subcommand in {"leave", "force-leave"}
+    msg := "consul leave/force-leave removes the agent from the cluster. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "consul"
+    input.subcommand == "operator"
+    has_any_arg(input.args, ["remove-peer"])
+    msg := "consul operator raft remove-peer mutates Raft consensus membership. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "vault"
+    input.subcommand == "kv"
+    has_any_arg(input.args, ["delete", "destroy"])
+    msg := "vault kv delete/destroy removes secret data. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "vault"
+    input.subcommand in {"secrets", "auth"}
+    has_any_arg(input.args, ["disable"])
+    msg := "vault secrets/auth disable turns off a secrets engine or auth method. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "vault"
+    input.subcommand in {"token", "lease"}
+    has_any_arg(input.args, ["revoke"])
+    msg := "vault token/lease revoke invalidates credentials. Do NOT run this automatically."
+}
+
+deny[msg] if {
+    input.program == "vault"
+    input.subcommand == "seal"
+    msg := "vault seal makes the Vault sealed and unavailable. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "vault"
+    input.subcommand == "operator"
+    has_any_arg(input.args, ["remove-peer"])
+    msg := "vault operator raft remove-peer mutates Raft consensus membership. Do NOT run this automatically."
+}
+
+aws_blocked_verbs := [
+    "terminate-instances", "stop-instances", "delete-bucket",
+    "delete-stack", "delete-table", "delete-db-cluster", "delete-log-group",
+]
+
+deny[msg] if {
+    input.program == "aws"
+    some v in aws_blocked_verbs
+    has_any_arg(input.args, [v])
+    msg := "Destructive AWS operation tokens (terminate/stop/delete class) are blocked by default. Use read-only describe/list/get operations."
+}
+
+deny[msg] if {
+    input.program == "aws"
+    has_any_arg(input.args, ["s3"])
+    has_any_arg(input.args, ["rm", "rb"])
+    msg := "aws s3 rm/rb deletes objects or buckets. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "pm2"
+    first_arg_in(input.args, ["kill", "delete", "stop", "restart"])
+    msg := "pm2 kill/delete/stop/restart affects every managed node service. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "systemctl"
+    first_arg_in(input.args, ["stop", "kill", "mask", "disable", "isolate"])
+    msg := "systemctl stop/kill/mask/disable/isolate affects host services. Do NOT run this automatically — hand the exact command back to the user."
+}
+
+deny[msg] if {
+    input.program == "dd"
+    has_arg_prefix(input.args, [
+        "of=/dev/sd", "of=/dev/nvme", "of=/dev/vd", "of=/dev/hd",
+        "of=/dev/mmcblk", "of=/dev/loop", "of=/dev/md", "of=/dev/mapper",
+    ])
+    msg := "dd writing to a raw block device (of=/dev/*) can destroy disks beyond recovery. Do NOT run this automatically."
+}
+
+# docker-compose v1 standalone binary — GROUP C parity (parser keeps it
+# flat-arg-shaped; flag-first forms never yield subcommand="compose").
+deny[msg] if {
+    input.program == "docker-compose"
+    has_any_arg(input.args, ["down"])
+    has_arg_prefix(input.args, litellm_projects)
+    msg := "NEVER bring down litellm/litellm-local/omniroute via docker compose."
+}
+
+deny[msg] if {
+    input.program == "docker-compose"
+    has_any_arg(input.args, ["rm"])
+    has_arg_prefix(input.args, litellm_projects)
+    msg := "NEVER remove litellm/litellm-local/omniroute containers via docker compose."
+}
+
+deny[msg] if {
+    input.program == "docker-compose"
+    has_arg_prefix(input.args, litellm_targets)
+    msg := "NEVER stop litellm/litellm-local/omniroute via docker compose --target."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP G — branch-target-allowlist (LD1)
+# Deny git checkout/switch <X> when X ∉ allowed set AND in main worktree.
+# signals.repo.is_main_worktree must be true (sub-worktrees roam free).
+# ──────────────────────────────────────────────────────────────────
+
+# Default allowed branches if data.config.allowed_branches is absent.
+default_branches := {"dev", "staging", "main", "master"}
+
+allowed_branches := branches if {
+    branches := data.config.allowed_branches
+} else := default_branches if {
+    not data.config.allowed_branches
+}
+
+# Helper: signals.repo available and is_main_worktree is true.
+repo_available_main_worktree if {
+    input.signals.repo.available == true
+    input.signals.repo.is_main_worktree == true
+}
+
+# Helper: target resolves as a local branch ref.
+target_is_local_branch if {
+    input.signals.git.target_kind == "branch"
+    input.signals.git.target_branch != null
+}
+
+# Helper: array/set-agnostic membership test for allowed branches.
+# data.config.allowed_branches may arrive as a JSON array; string-indexing
+# an array is undefined, so use iteration-based membership instead.
+branch_allowed(t) if {
+    allowed_branches[_] == t
+}
+
+# Deny checkout to non-allowed branch from main worktree.
+# Empty allowed_branches → rule inert (LD3).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "checkout"
+    repo_available_main_worktree
+    target_is_local_branch
+    count(allowed_branches) > 0
+    target := input.signals.git.target_branch
+    not branch_allowed(target)
+    msg := sprintf("branch-target-allowlist: checkout to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
+}
+
+# Deny switch to non-allowed branch from main worktree.
+# Empty allowed_branches → rule inert (LD3).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "switch"
+    repo_available_main_worktree
+    target_is_local_branch
+    count(allowed_branches) > 0
+    target := input.signals.git.target_branch
+    not branch_allowed(target)
+    msg := sprintf("branch-target-allowlist: switch to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP H — worktree-path-allowlist (LD5, LD6)
+# Deny git worktree add/move/repair when canonicalized path ∉ allowed prefixes.
+# Boundary-enforced prefix match done in TS (canonicalizePath).
+# ──────────────────────────────────────────────────────────────────
+
+# Default allowed worktree dirs if data.config.worktree_allowed_dirs is absent.
+default_wt_dirs := {".worktrees", "worktrees"}
+
+worktree_allowed_dirs := dirs if {
+    dirs := data.config.worktree_allowed_dirs
+} else := default_wt_dirs if {
+    not data.config.worktree_allowed_dirs
+}
+
+# Helper: worktree subcommand that takes a path.
+worktree_path_subcommand if {
+    input.subcommand == "worktree"
+    input.args[0] == "add"
+}
+
+worktree_path_subcommand if {
+    input.subcommand == "worktree"
+    input.args[0] == "move"
+}
+
+worktree_path_subcommand if {
+    input.subcommand == "worktree"
+    input.args[0] == "repair"
+}
+
+# Deny when TS-side canonicalization flagged path as not allowed.
+# Empty worktree_allowed_dirs → rule inert (LD3).
+deny[msg] if {
+    input.program == "git"
+    worktree_path_subcommand
+    input.signals.worktree.available == true
+    input.signals.worktree.path_allowed == false
+    count(worktree_allowed_dirs) > 0
+    reason := object.get(input.signals.worktree, "path_reject_reason", "unknown")
+    path := object.get(input.signals.worktree, "target_path", "unknown")
+    msg := sprintf("worktree-path-allowlist: %s for path '%s'", [reason, path])
 }
 
 # ──────────────────────────────────────────────────────────────────
