@@ -191,8 +191,14 @@ export const RULES: readonly RuleMeta[] = [
     ruleId: 'block-home-wide-find',
     family: 'find',
     message:
-      'Home-rooted find ($HOME, /home/<user>, ~, unbounded Projects) is blocked. Scope to cwd, a repo, or a known goal dir. Unlock with block-home-wide-find.',
-    suggestions: ['find .', 'find <repo>', 'find ~/.pi/goals', 'find ~/.verifier-loop/goals'],
+      'Home-wide find ($HOME/**, /home/<user>/**, ~/**) is blocked. Scope to cwd, a repo, or a known goal dir. .worktrees walks require -maxdepth 2. Unlock with block-home-wide-find.',
+    suggestions: [
+      'find .',
+      'find <repo>',
+      'find ~/.pi/goals',
+      'find ~/.verifier-loop/goals',
+      'find <repo>/.worktrees -maxdepth 2',
+    ],
   },
   {
     ruleId: 'block-home-wide-grep',
@@ -200,6 +206,18 @@ export const RULES: readonly RuleMeta[] = [
     message:
       'Recursive grep of ~/.hermes (including *.db) is blocked. Scope to cwd or a file. Unlock with block-home-wide-grep.',
     suggestions: ['grep -r foo .', 'rg -l <pattern> .'],
+  },
+  // ── GROUP L: shallow heavy scan (BHD-209) ──
+  {
+    ruleId: 'block-shallow-heavy-scan',
+    family: 'scan',
+    message:
+      'Recursive scan (`find`/`du`/`rg`/`fd`/`grep -r`/`ls -R`) on `/` or a 1–2 level path is blocked — full-tree IO saturates the disk and hangs. Discover first with `eza -T -L 2 <dir>`, then scan a specific ≥3-level target (e.g. `/var/lib/docker`, `/home/bhd/.local`). Unlock: `block-shallow-heavy-scan`.',
+    suggestions: [
+      'eza -T -L 2 <dir>',
+      'du -sh /var/lib/docker',
+      'du -sh /home/bhd/.local',
+    ],
   },
   // ── GROUP F: gh / glab ──
   {
@@ -484,6 +502,12 @@ export function inferFamilyFromProgram(program: string): RuleFamily {
       return 'find';
     case 'grep':
       return 'grep';
+    case 'du':
+    case 'rg':
+    case 'fd':
+    case 'rgrep':
+    case 'ls':
+      return 'scan';
     default:
       return 'custom';
   }

@@ -228,22 +228,26 @@ describe.skipIf(!OPA_AVAILABLE)('cc-safety-net cupcake parity', () => {
   });
 
   describe('parity: every rulebook rule name is produced as a rule_id', () => {
-    it('union of deny.rule_ids across ALL blocked fixtures covers every rulebook name', () => {
-      const produced = new Set<string>();
-      const allBlocked: Array<{ command: string; rule?: string }> = [
-        ...rulebook.tests.filter((t) => t.expect === 'blocked'),
-        ...TMUX_SCENARIOS.filter((s) => s.expect === 'blocked'),
-      ];
-      for (const c of allBlocked) {
-        const out = evaluate(buildInput(c.command));
-        for (const d of out.deny ?? []) produced.add(d.rule_id);
-      }
-      const missing = ruleNames.filter((n) => !produced.has(n));
-      expect(
-        missing,
-        `rule_ids not produced by any blocked fixture: ${missing.join(', ')}`,
-      ).toEqual([]);
-    });
+    it(
+      'union of deny.rule_ids across ALL blocked fixtures covers every rulebook name',
+      () => {
+        const produced = new Set<string>();
+        const allBlocked: Array<{ command: string; rule?: string }> = [
+          ...rulebook.tests.filter((t) => t.expect === 'blocked'),
+          ...TMUX_SCENARIOS.filter((s) => s.expect === 'blocked'),
+        ];
+        for (const c of allBlocked) {
+          const out = evaluate(buildInput(c.command));
+          for (const d of out.deny ?? []) produced.add(d.rule_id);
+        }
+        const missing = ruleNames.filter((n) => !produced.has(n));
+        expect(
+          missing,
+          `rule_ids not produced by any blocked fixture: ${missing.join(', ')}`,
+        ).toEqual([]);
+      },
+      60_000,
+    );
   });
 
   describe('cupcake self-filtering (mandatory contract)', () => {

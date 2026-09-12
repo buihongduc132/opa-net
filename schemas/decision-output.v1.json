@@ -100,7 +100,7 @@
         },
         "family": {
           "type": "string",
-          "enum": ["git", "docker", "rm", "gcloud", "bq", "gh", "glab", "bd", "builtin", "custom", "tmux", "pkill", "killall", "herdr", "pulumi", "iac", "nomad", "consul", "vault", "aws", "svcman", "dd", "find", "grep"],
+          "enum": ["git", "docker", "rm", "gcloud", "bq", "gh", "glab", "bd", "builtin", "custom", "tmux", "pkill", "killall", "herdr", "pulumi", "iac", "nomad", "consul", "vault", "aws", "svcman", "dd", "find", "grep", "scan"],
           "description": "Rule family for grouping/filtering. Matches the 6 families in the rego translation (turn6)."
         },
         "severity": {

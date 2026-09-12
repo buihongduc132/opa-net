@@ -155,4 +155,20 @@ describe('rule catalog ↔ rego parity', () => {
       expect(byId.get('block-home-wide-grep')?.family).toBe('grep');
     });
   });
+
+  // ── shallow heavy scan gate (ban-shallow-heavy-scan / GROUP L) ──
+  describe('shallow heavy scan rule parity', () => {
+    const REQUIRED_RULE_IDS = ['block-shallow-heavy-scan'];
+
+    it('catalog contains block-shallow-heavy-scan', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('block-shallow-heavy-scan maps to family scan', () => {
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      expect(byId.get('block-shallow-heavy-scan')?.family).toBe('scan');
+    });
+  });
 });

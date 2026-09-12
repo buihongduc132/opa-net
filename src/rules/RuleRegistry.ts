@@ -24,7 +24,8 @@ export type RuleFamily =
   | 'svcman'
   | 'dd'
   | 'find'
-  | 'grep';
+  | 'grep'
+  | 'scan';
 
 export interface RuleMeta {
   readonly ruleId: string;

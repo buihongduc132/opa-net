@@ -25,6 +25,7 @@ describe('EnvSignals', () => {
     const result = collector.collect(makeCtx('docker', 'run'));
     expect(result.available).toBe(true);
     expect(result.home).toBeTruthy();
+    expect(result.cwd).toBe('/tmp');
   });
 });
 

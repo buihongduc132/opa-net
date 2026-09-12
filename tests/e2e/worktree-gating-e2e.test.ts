@@ -68,7 +68,7 @@ beforeAll(() => {
   });
   execSync('git config user.name test', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   writeFileSync(join(fixtureRepo, 'README.md'), '# test\n');
-  execSync('git add -A && git commit -m init', {
+  execSync('git -c core.hooksPath=/dev/null add -A && git -c core.hooksPath=/dev/null commit --no-verify -m init', {
     cwd: fixtureRepo,
     stdio: 'ignore',
     timeout: 15000,
@@ -203,7 +203,10 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     // Create the file in feature-evil branch first.
     execSync('git checkout feature-evil', { cwd: fixtureRepo, stdio: 'ignore' });
     writeFileSync(join(fixtureRepo, 'src-app.ts'), 'export {};\n');
-    execSync('git add -A && git commit -m add-file', { cwd: fixtureRepo, stdio: 'ignore' });
+    execSync('git -c core.hooksPath=/dev/null add -A && git -c core.hooksPath=/dev/null commit --no-verify -m add-file', {
+      cwd: fixtureRepo,
+      stdio: 'ignore',
+    });
     execSync('git checkout main', { cwd: fixtureRepo, stdio: 'ignore' });
 
     const result = runCli('git checkout feature-evil -- src-app.ts', fixtureRepo);
@@ -289,7 +292,10 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
       execSync('git config user.email test@test.com', { cwd: otherRepo, stdio: 'ignore' });
       execSync('git config user.name test', { cwd: otherRepo, stdio: 'ignore' });
       writeFileSync(join(otherRepo, 'README.md'), '# other\n');
-      execSync('git add -A && git commit -m init', { cwd: otherRepo, stdio: 'ignore' });
+      execSync(
+        'git -c core.hooksPath=/dev/null add -A && git -c core.hooksPath=/dev/null commit --no-verify -m init',
+        { cwd: otherRepo, stdio: 'ignore' },
+      );
 
       // Run from fixtureRepo cwd, but target -C <otherRepo> worktree add /tmp/evil.
       const evilPath = join(evilDir, 'wt-via-C');

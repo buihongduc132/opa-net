@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **GROUP K — home-wide find/grep gate** (BHD-165 / BHD-196): `block-home-wide-find` denies home-rooted `find` (`$HOME`, `/home/<user>`, `~`, unbounded `Documents/Projects`). `block-home-wide-grep` denies recursive `grep` of `~/.hermes` (incl. `*.db`). Scoped walks (`find .`, repo path, known goal dirs, `<repo>/.worktrees -maxdepth 2`) stay allowed without a key. Per-rule unlock keys (LD-L1); no god-key (LD-L2). Fail-open (`default allow := true`) unchanged.
+- **GROUP K — home-wide find/grep gate** (BHD-165 / BHD-196 / BHD-203): `block-home-wide-find` denies **home-wide prefix** `find` (`$HOME/**`, `/home/<user>/**`, `~/**`) except the named allow class. `block-home-wide-grep` denies recursive `grep` of `~/.hermes` (incl. `*.db`). Scoped walks (`find .`, repo path, known goal dirs, `<repo>/.worktrees -maxdepth 2`) stay allowed without a key. `.worktrees -maxdepth 99` DENY — maxdepth≤2 is a real gate. Per-rule unlock keys (LD-L1); no god-key (LD-L2). Fail-open (`default allow := true`) unchanged. Default `PI_OPA_TIMEOUT_MS` raised 250 → **5000** so GROUP K denies under parallel `bun test` instead of timing out into `source:'fail-open'`. Reviewers must not need to export `PI_OPA_TIMEOUT_MS=5000`.
+- **OT-systemd:** opa-net will **not** stop `wt-reap-idle`. That timer is a systemd user unit and does not pass the pi bash hook. Put the walk on a scoped path (`<repo>/.worktrees -maxdepth 2`) or unlock `block-home-wide-find` from an agent shell; the timer itself is out of this gate.
 - **Parser: unwrap `bash -c` / `sh -c`** (OT-bash-c) so the inner program is classified. Quoted `-c` payload is one arg; the outer `;` splitter no longer cuts through it.
 
 ## [0.6.0] - 2026-08-16

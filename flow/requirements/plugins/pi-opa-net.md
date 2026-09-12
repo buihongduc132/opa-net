@@ -127,7 +127,7 @@ export function adapt(decision: DecisionOutput): SafetyNetResult {
 |-----|---------|---------|
 | `PI_OPA_FAIL_MODE` | `open` | fail-mode |
 | `PI_OPA_BINARY` | auto (PATH → mise) | OPA binary path |
-| `PI_OPA_TIMEOUT_MS` | `250` | OPA eval timeout |
+| `PI_OPA_TIMEOUT_MS` | `5000` | OPA eval timeout |
 | `PIOPANET_UNLOCK_KEYS` | (none) | unlock keys (comma-separated) |
 | `PIOPANET_AGENT_ID` | (none) | agent identifier for audit |
 

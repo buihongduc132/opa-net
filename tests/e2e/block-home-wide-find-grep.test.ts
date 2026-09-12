@@ -2,9 +2,9 @@
  * RED tests for the home-wide find/grep gate
  * (BHD-195 Stage 1 + BHD-202 Stage 4).
  *
- * Stage 4 extends Stage 1 fixtures. Do NOT implement policy/catalog/timeout
- * here. Today's GREEN on 640d971 must fail the new deny/fail-open/maxdepth
- * cases until Stage 5.
+ * Stage 4 extends Stage 1 fixtures. Stage 5 (BHD-203) makes these GREEN:
+ * home-wide prefix deny, .worktrees maxdepth gate, default timeout 5000ms
+ * so deny-class does not fail-open under parallel bun test.
  *
  * Rule IDs (unlock keys, LD-L1 per-rule, no god-key LD-L2):
  *   block-home-wide-find
@@ -15,10 +15,11 @@
  *
  * Fail-open (`default allow := true`) must not be weakened. Deny-class
  * assertions require source !== 'fail-open' (OPA, not the timeout path).
+ * Default PI_OPA_TIMEOUT_MS is 5000 — do not export 5000 in the reviewer shell.
  *
  * Fixture table: tests/fixtures/home-wide-find-grep.json (live PIDs/cmds).
  */
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -40,6 +41,11 @@ const REGO_PATH = resolve(ROOT, 'policy/safety.rego');
 
 const HOME = process.env.HOME ?? homedir() ?? '/home/bhd';
 const REPO = ROOT;
+
+// bun test default per-test timeout is 5000ms. GROUP K evals spawn a real OPA
+// subprocess; under parallel load a single eval can exceed 5s even when the
+// engine timeout (DEFAULT_OPA_TIMEOUT_MS=5000) is plenty. 15s matches runEval.
+setDefaultTimeout(15_000);
 
 interface FixtureCase {
   id: string;
@@ -146,7 +152,7 @@ function expectOpaUnlocked(result: EvalResult): void {
   expect(exitCode).toBe(0);
 }
 
-describe('home-wide find/grep gate — catalog (RED until Stage 2)', () => {
+describe('home-wide find/grep gate — catalog (RED until Stage 2, GREEN after)', () => {
   it(`registers ${FIND_RULE}`, () => {
     expectRuleRegistered(FIND_RULE);
   });
@@ -412,7 +418,7 @@ describe.if(!SKIP_REASON)('home-wide find/grep gate — ALLOW scoped walks', () 
   });
 });
 
-describe.if(!SKIP_REASON)('home-wide find/grep gate — unlock contract (RED until Stage 2)', () => {
+describe.if(!SKIP_REASON)('home-wide find/grep gate — unlock contract', () => {
   let tempDir: string;
   let saltPath: string;
 

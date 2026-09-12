@@ -201,7 +201,7 @@ The default `open` matches the [`pi-safety-net`](https://www.npmjs.com/package/p
 |-----|---------|---------|
 | `PI_OPA_BINARY` | auto (PATH → mise) | OPA binary path |
 | `PI_OPA_FAIL_MODE` | `open` | fail-mode |
-| `PI_OPA_TIMEOUT_MS` | `250` | OPA eval timeout |
+| `PI_OPA_TIMEOUT_MS` | `5000` | OPA eval timeout (was 250; GROUP K compile+eval under load needs headroom so deny-class does not fail-open) |
 | `PI_OPA_HOSTNAME` | `os.hostname()` | metadata.hostname |
 | `PI_OPA_SESSION_ID` | `""` | metadata.session_id |
 
@@ -221,7 +221,7 @@ When enabled + endpoint set: `MultiSink([filesystem, otlp])`. When enabled but n
 ### Rules
 
 - `block-rm-rf-dangerous-target` — blocks `rm -rf` on `/`, `~`, `.`, `..`, `*`, `/*`, `$HOME`, `/home`. Safe carve-outs: `/tmp/<specific>`, `./<specific>`, named dirs.
-- `block-home-wide-find` — blocks home-rooted `find` (`$HOME`, `/home/<user>`, `~`, unbounded `Documents/Projects`). Scoped walks (`find .`, repo path, `~/.pi/goals`, `~/.verifier-loop/goals`, `<repo>/.worktrees -maxdepth 2`) stay allowed. Unlock key: `block-home-wide-find`.
+- `block-home-wide-find` — blocks **home-wide prefix** `find` (`$HOME/**`, `/home/<user>/**`, `~/**`, including `.ssh` / `.config` / `Documents/…`). Scoped walks (`find .`, repo path, `~/.pi/goals`, `~/.verifier-loop/goals`, `<repo>/.worktrees -maxdepth 2`) stay allowed. `.worktrees -maxdepth 99` is denied. Unlock key: `block-home-wide-find`. **OT-systemd:** opa-net will not stop the `wt-reap-idle` user timer — that unit does not pass the pi bash hook.
 - `block-home-wide-grep` — blocks recursive `grep` of `~/.hermes` (including `*.db`). Cwd-scoped `grep -r` / `rg` stay allowed. Unlock key: `block-home-wide-grep`.
 
 ## Develop

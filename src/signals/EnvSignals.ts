@@ -12,17 +12,20 @@ import type { SignalCollector, SignalContext } from './types.ts';
 export interface EnvSignal {
   readonly available: boolean;
   readonly home: string | null;
+  /** Process cwd the guarded command would run in (repo/cwd allow-class). */
+  readonly cwd: string | null;
 }
 
 export class EnvSignals implements SignalCollector {
   readonly name = 'env';
 
-  collect(_ctx: SignalContext): EnvSignal {
+  collect(ctx: SignalContext): EnvSignal {
+    const cwd = ctx.cwd || null;
     try {
       const home = homedir();
-      return { available: !!home, home: home || null };
+      return { available: !!home || !!cwd, home: home || null, cwd };
     } catch {
-      return { available: false, home: null };
+      return { available: false, home: null, cwd };
     }
   }
 }

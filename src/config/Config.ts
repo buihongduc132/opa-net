@@ -7,6 +7,15 @@ export type FailMode = 'open' | 'closed';
 /** Cache TTL in ms. 0 disables caching. */
 export const DEFAULT_CACHE_TTL_MS = 0;
 
+/**
+ * Default OPA eval timeout (ms). 250ms was enough for the 42-rule catalog and
+ * fails open under GROUP K + parallel `bun test` (source:'fail-open' instead
+ * of a real deny). 5000ms covers compile+eval under load without changing
+ * fail-open as the policy default (`default allow := true`). Reviewers must
+ * not need to export PI_OPA_TIMEOUT_MS=5000.
+ */
+export const DEFAULT_OPA_TIMEOUT_MS = 5000;
+
 export interface EngineConfig {
   /** Path to the OPA binary. If unset, auto-discovered via PATH + mise. */
   readonly opaBinary?: string;
@@ -71,7 +80,9 @@ function readdirSafe(path: string): string[] {
 /** Build an EngineConfig from environment + defaults. */
 export function configFromEnv(policyPath: string): EngineConfig {
   const failMode: FailMode = (ENV.PI_OPA_FAIL_MODE as FailMode) === 'closed' ? 'closed' : 'open';
-  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10) : 250;
+  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS
+    ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10)
+    : DEFAULT_OPA_TIMEOUT_MS;
   const baseCacheTtlMs = ENV.PI_OPA_CACHE_TTL_MS
     ? Number.parseInt(ENV.PI_OPA_CACHE_TTL_MS, 10)
     : DEFAULT_CACHE_TTL_MS;

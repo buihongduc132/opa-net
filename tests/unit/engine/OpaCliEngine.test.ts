@@ -7,16 +7,17 @@ import type { ParsedCommand } from '../../../src/parser/types.ts';
 
 const ROOT = resolve(import.meta.dir, '../../../');
 const POLICY = resolve(ROOT, 'policy/safety.rego');
-const OPA = process.env.HOME
-  ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.1/opa`
-  : 'opa';
+const OPA = process.env.OPA_BIN
+  ?? (process.env.HOME
+    ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.2/opa`
+    : 'opa');
 const opaAvailable = existsSync(OPA);
 
 const cfg = (failMode: 'open' | 'closed'): EngineConfig => ({
   opaBinary: OPA,
   policyPath: POLICY,
   failMode,
-  timeoutMs: 2000,
+  timeoutMs: 5000,
   cacheTtlMs: 0,
 });
 

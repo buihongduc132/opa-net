@@ -72,7 +72,7 @@ When enabled + endpoint set: `MultiSink([filesystem, otlp])`. When enabled but n
 ## Rules
 
 - `block-rm-rf-dangerous-target` — blocks `rm -rf` on `/`, `~`, `.`, `..`, `*`, `/*`, `$HOME`, `/home`. Safe carve-outs: `/tmp/<specific>`, `./<specific>`, named dirs.
-- `block-home-wide-find` — blocks home-rooted `find` (`$HOME`, `/home/<user>`, `~`, unbounded `Documents/Projects`). Scoped walks stay allowed. Unlock: `block-home-wide-find`.
+- `block-home-wide-find` — blocks **home-wide prefix** `find` (`$HOME/**`, `/home/<user>/**`, `~/**`). Scoped walks stay allowed. `.worktrees` walks require `-maxdepth 2`. Unlock: `block-home-wide-find`. **OT-systemd:** opa-net will not stop `wt-reap-idle` (systemd user timer, does not pass the pi bash hook).
 - `block-home-wide-grep` — blocks recursive `grep` of `~/.hermes` (including `*.db`). Unlock: `block-home-wide-grep`.
 
 ## References

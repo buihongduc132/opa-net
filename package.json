@@ -22,9 +22,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check --write src tests bin",
     "lint:ci": "biome ci src tests bin",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
-    "check": "bun run typecheck && bun run lint:ci && bun test --coverage",
+    "test": "bun test --timeout 30000",
+    "test:coverage": "bun test --coverage --timeout 30000",
+    "check": "bun run typecheck && bun run lint:ci && bun test --coverage --timeout 30000",
     "smoke": "bun run bin/pi-opa-net.js eval \"git stash pop\" --json",
     "prepublishOnly": "bun run check"
   },
