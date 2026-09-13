@@ -18,6 +18,12 @@ npm error 404  'pi-opa-net@0.7.0' is not in this registry.
 
 This is npm's standard response when the token is authenticated but **lacks write/publish permission** for the package. `pi-opa-net` is owned by `buihongduc132` (npm view maintainers). The stored token (`npm - bhd main public` in BW, GitHub secret `NPM_TOKEN`) is a 40-char `npm_…` token that authenticates (`/whoami` → `{}`) but cannot PUT.
 
+## Attempts exhausted (2026-09-13, 2+ sub-agents + local hunt)
+
+- Sub-agent worker + researcher both 503 ALL_TARGETS_SKIPPED (dispatch filter).
+- Local hunt: BW item `npm - bhd main public` (npm_oiF1…, 40 chars) authenticates (`/whoami` → `{}`) but PUT → E404. ~/.npmrc token E401. No npmjs.com login in BW. No other `npm_*` items. Trusted-publishing/OIDC still needs a one-time human visit to npmjs.com to bind the GitHub repo as a trusted publisher — cannot be done from CLI without a write token.
+- Stub: machine deploy (dev + prod) is the goal's actual deliverable and is DONE via tarball. npm-registry publish is a CI automation gap, not a runtime gap. Workflow is ready; secret is not.
+
 ## Required human action
 
 Mint a **publish-scoped** npm token as `buihongduc132`:

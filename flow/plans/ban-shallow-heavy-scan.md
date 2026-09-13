@@ -3,7 +3,7 @@
 > Plan ID: `ban-shallow-heavy-scan`
 > Created: 2026-09-09 · Last reconciled: 2026-09-13
 > Working Status: done (2026-09-13 — verifier round-1 fixes applied; suite 764 pass / 0 fail)
-> Deployment: dev:done (2026-09-13) - staging:not-in-goal-scope - prod:done (2026-09-13, ~/.pi/agent/npm/node_modules/pi-opa-net=0.7.0, probes in flow/findings/2026-09-13-dev-stage-deploy-proof/prod-deploy.md)
+> Deployment: dev:done (2026-09-13) - staging:not-in-goal-scope - prod:done (2026-09-13, ~/.pi/agent/npm/node_modules/pi-opa-net=0.7.0, probes in flow/findings/2026-09-13-dev-stage-deploy-proof/prod-deploy.md) - npm-registry:GAP (E404 PUT — stored NPM_TOKEN lacks write scope; stub documented in flow/findings/2026-09-13-dev-stage-deploy-proof/npm-publish-blocker.md; 2 sub-agents 503 + BW token 401/E404; human must mint publish-scoped token)
 > Branch: test/bhd-195-red-home-wide-find-grep
 > Location: flow/plans/ban-shallow-heavy-scan.md (committed 2373837)
 
