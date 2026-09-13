@@ -60,6 +60,12 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # prepublishOnly runs `bun run check` → `bun test` → OPA e2e suites.
+      # Without OPA on PATH, unlock-flow + cupcake-parity tests fail and publish
+      # aborts (regression caught on the first 0.7.0 publish attempt).
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
       - run: bun install --frozen-lockfile
       - name: Check version bump
         run: |
