@@ -54,7 +54,7 @@ DO NOT rewrite item prose on re-run (status flips only).
 
 ## Gotcha-driven items (appended by /gotcha-coverage)
 
-- [x] path-normalize: normalize `.`/`..`/`//`/trailing-`/` before depth count. Status: pending. Probe: `du -sh /var/lib/..` → denied.
+- [x] path-normalize: normalize `.`/`..`/`//`/trailing-`/` before depth count. Status: done (fixture case du-dotdot). Probe `du -sh /var/lib/..` → denied.
 - [x] raw-token-fallback: raw-token deny rule for `~`/`$HOME`/`${HOME}`/empty-arg/compound (GROUP K `find_raw_home_token` pattern). Probe: `du -sh $HOME` → denied.
 - [x] recursive-by-default: `rg`/`fd`/`rgrep` classified always-heavy (not flag-gated). Probe: `rg x /` → denied.
 - [x] cwd-resolution: relative `.` path resolved against cwd signal; deny if resolved depth ≤2. Probe: `cd / && du -sh .` → denied. RESOLVED (OT6, 2026-09-13): allow-all-relative chosen — agent cwd is a repo/dir in practice and the incident commands were all absolute paths; `du -sh .` in a repo must stay usable.
