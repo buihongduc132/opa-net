@@ -25,7 +25,7 @@
     "test": "bun test --timeout 30000",
     "test:coverage": "bun test --coverage --timeout 30000",
     "check": "bun run typecheck && bun run lint:ci && bun test --coverage --timeout 30000",
-    "smoke": "bun run bin/pi-opa-net.js eval \"git stash pop\" --json",
+    "smoke": "bun run bin/pi-opa-net.js eval \"git stash pop\" --json >/dev/null 2>&1; ec=$?; [ $ec -eq 2 ] && echo 'smoke OK (git stash pop denied, exit 2)' && exit 0; echo 'smoke FAIL (expected deny exit 2, got '$ec')' >&2; exit 1",
     "prepublishOnly": "bun run check"
   },
   "keywords": [
