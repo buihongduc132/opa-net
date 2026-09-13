@@ -29,7 +29,10 @@ export function unwrapShellDashC(parsed: ParsedCommand): string | null {
     if (a === '-c' || a === '--command') {
       return args[i + 1] ?? null;
     }
-    if (a.startsWith('-') && !a.startsWith('--') && a.includes('c') && a.length <= 4) {
+    // Short-option cluster with `c` as the final option (`-lc`, `-ic`, `-liec`).
+    // Any length is valid — a `<= 4` cap let `bash -liec 'find …'` classify as
+    // `bash` and bypass the inner-program gate (cubic P1 on unwrapShellDashC:32).
+    if (a.startsWith('-') && !a.startsWith('--') && a.endsWith('c') && /^-[a-zA-Z]*c$/.test(a)) {
       return args[i + 1] ?? null;
     }
   }

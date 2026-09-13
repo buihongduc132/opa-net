@@ -26,8 +26,8 @@ export type CheckoutClassification =
   | { kind: 'commit-ish' }
   | { kind: 'none' };
 
-/** Flags that consume the next arg as a value (checkout/switch). */
-const FLAGS_WITH_VALUE = new Set(['--track', '--recurse-submodules', '-l', '--lock', '--source']);
+/** Flags that consume the next arg as a REQUIRED value (checkout/switch). */
+const FLAGS_WITH_VALUE = new Set(['--track', '--lock', '--source']);
 
 /** Flags that take no value. */
 const FLAGS_NO_VALUE = new Set([
@@ -55,6 +55,12 @@ const FLAGS_NO_VALUE = new Set([
   '--pathspec-file-nul',
   '--no-write-out-tree',
   '--write-out-tree',
+  // Optional-value flags: the value may be attached (`=v`) but is NOT a
+  // separate positional. Treating these as value-consuming let `git checkout
+  // --recurse-submodules feature` eat `feature` and skip branch classification
+  // (cubic P1 on checkoutTarget.ts:30).
+  '--recurse-submodules',
+  '-l',
 ]);
 
 /**
@@ -83,8 +89,24 @@ export function classifyCheckoutTarget(
   while (i < args.length) {
     const arg = args[i];
 
-    // `-` means previous branch — treat as positional, not a flag.
+    // `-` means previous branch — resolve @{-1} so the branch-target
+    // allowlist still applies (cubic P1 on checkoutTarget.ts:88).
     if (arg === '-') {
+      if (cwd) {
+        try {
+          const prev = execFileSync('git', ['rev-parse', '--abbrev-ref', '@{-1}'], {
+            cwd,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+            timeout: 250,
+          }).trim();
+          if (prev && prev !== 'HEAD' && !prev.startsWith('fatal')) {
+            return { kind: 'branch', name: prev };
+          }
+        } catch {
+          // No previous branch — fall through to detached.
+        }
+      }
       return { kind: 'detached' };
     }
 

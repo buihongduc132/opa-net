@@ -9,8 +9,9 @@ import type { DecisionOutput } from '../output/DecisionBuilder.ts';
  */
 export function redactSecrets(text: string): string {
   let out = text;
-  // Authorization: Bearer <token>
-  out = out.replace(/(Bearer\s+)([A-Za-z0-9._\-]+)/gi, '$1[REDACTED]');
+  // Authorization: Bearer <token> — full base64url charset incl. +, /, =
+  // (cubic P1: partial charset left usable credential material in audit).
+  out = out.replace(/(Bearer\s+)([A-Za-z0-9._~+\/=_-]+)/gi, '$1[REDACTED]');
   // Generic sk-<token> (Stripe/Anthropic/etc API keys)
   out = out.replace(/\bsk-[A-Za-z0-9_\-]{6,}/g, 'sk-[REDACTED]');
   return out;
