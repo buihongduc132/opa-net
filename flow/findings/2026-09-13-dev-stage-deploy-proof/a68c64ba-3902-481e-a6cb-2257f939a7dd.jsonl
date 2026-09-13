@@ -1,0 +1,1 @@
+{"decision_id":"a68c64ba-3902-481e-a6cb-2257f939a7dd","decision":"deny","source":"opa","command":"sudo du -sh /var","rule_ids":["block-shallow-heavy-scan"],"evaluated_at":"2026-09-13T04:55:36.461Z","pi_opa_net_version":"0.7.0"}

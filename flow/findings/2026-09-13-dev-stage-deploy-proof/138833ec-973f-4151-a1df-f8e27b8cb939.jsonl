@@ -1,0 +1,1 @@
+{"decision_id":"138833ec-973f-4151-a1df-f8e27b8cb939","decision":"deny","source":"opa","command":"du -sh /var","rule_ids":["block-shallow-heavy-scan"],"evaluated_at":"2026-09-13T04:06:27.908Z","pi_opa_net_version":"0.7.0"}

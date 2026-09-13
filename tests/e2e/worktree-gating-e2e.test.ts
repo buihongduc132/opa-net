@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync, execSync as execSyncRaw } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -40,6 +40,19 @@ const opaAvailable = existsSync(OPA);
 
 const auditDir = resolve(ROOT, '.pi-opa-net/audit');
 
+/** Fixture execSync — bypasses the machine-level git wrapper.
+ *
+ * ~/.local/bin/git (GIT_GUARD_*) guards checkout of protected branches in
+ * main worktrees; fixture setup must checkout main/dev/staging freely. Fixture
+ * git ops are test SETUP — the assertion target is OPA's decision on the
+ * command string, not real checkout execution. bun's execSync does not see
+ * process.env mutations made after startup, so env is injected explicitly.
+ * (pi-opa-net signals use PIOPANET_* — no rule reads GIT_GUARD_*.)
+ */
+function execSync(cmd: string, opts: { cwd: string; stdio?: 'ignore'; timeout?: number }): void {
+  execSyncRaw(cmd, { ...opts, env: { ...process.env, GIT_GUARD_DISABLE: '1' } });
+}
+
 /** Fixture: a real git repo on branch `main` with branches dev, staging, main. */
 let fixtureRepo: string;
 let evilDir: string;
@@ -68,11 +81,14 @@ beforeAll(() => {
   });
   execSync('git config user.name test', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   writeFileSync(join(fixtureRepo, 'README.md'), '# test\n');
-  execSync('git -c core.hooksPath=/dev/null add -A && git -c core.hooksPath=/dev/null commit --no-verify -m init', {
-    cwd: fixtureRepo,
-    stdio: 'ignore',
-    timeout: 15000,
-  });
+  execSync(
+    'git -c core.hooksPath=/dev/null add -A && git -c core.hooksPath=/dev/null commit --no-verify -m init',
+    {
+      cwd: fixtureRepo,
+      stdio: 'ignore',
+      timeout: 15000,
+    },
+  );
   // Create allowed branches.
   execSync('git branch dev', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   execSync('git branch staging', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
@@ -203,10 +219,13 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     // Create the file in feature-evil branch first.
     execSync('git checkout feature-evil', { cwd: fixtureRepo, stdio: 'ignore' });
     writeFileSync(join(fixtureRepo, 'src-app.ts'), 'export {};\n');
-    execSync('git -c core.hooksPath=/dev/null add -A && git -c core.hooksPath=/dev/null commit --no-verify -m add-file', {
-      cwd: fixtureRepo,
-      stdio: 'ignore',
-    });
+    execSync(
+      'git -c core.hooksPath=/dev/null add -A && git -c core.hooksPath=/dev/null commit --no-verify -m add-file',
+      {
+        cwd: fixtureRepo,
+        stdio: 'ignore',
+      },
+    );
     execSync('git checkout main', { cwd: fixtureRepo, stdio: 'ignore' });
 
     const result = runCli('git checkout feature-evil -- src-app.ts', fixtureRepo);

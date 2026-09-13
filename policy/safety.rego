@@ -1122,8 +1122,10 @@ deny[msg] if {
 # ──────────────────────────────────────────────────────────────────
 
 # Always-heavy scan programs — recursive by default, no flag gate
-# (rg/fd/rgrep are recursive-by-default; gotcha G5.2).
-scan_programs := {"find", "du", "rg", "fd", "rgrep"}
+# (rg/fd/rgrep are recursive-by-default; gotcha G5.2). fsck/baobab from
+# the turn-2 LD3 enumeration (full-device / full-tree scanners present
+# on this machine: /usr/sbin/fsck, /usr/bin/baobab).
+scan_programs := {"find", "du", "rg", "fd", "rgrep", "fsck", "baobab"}
 
 # GROUP K already denies home-WIDE find. For find, defer home-prefix
 # shallow paths to GROUP K so the agent sees ONE rule, not two (G4.8).
@@ -1133,9 +1135,38 @@ groupk_programs := {"find"}
 # ls is heavy only with -R/--recursive.
 ls_recursive(args) if { has_any_arg(args, ["-R", "--recursive"]) }
 
-# eza recurses via -T/-R/--tree/--recurse; bounded only by -L/--level.
+# eza recurses via -T/-R/--tree/--recurse; bounded ONLY by -L/--level
+# with N <= 2 (gotcha eza-level-gate: `-L 99` is unbounded in practice,
+# the exemption is real only when the level is a discovery bound).
 eza_tree_flag(args) if { has_any_arg(args, ["-T", "--tree", "-R", "--recurse"]) }
-eza_level_bounded(args) if { has_any_arg(args, ["-L", "--level"]) }
+
+eza_level_eq(args) := {n |
+    some a in args
+    startswith(a, "--level=")
+    s := trim_prefix(a, "--level=")
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+eza_level_attached(args) := {n |
+    some a in args
+    regex.match("^-L=?[0-9]+$", a)
+    s := trim_prefix(trim_prefix(a, "-L"), "=")
+    n := to_number(s)
+}
+eza_level_separated(args) := {n |
+    some i
+    args[i] in {"-L", "--level"}
+    count(args) > i + 1
+    s := args[i + 1]
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+
+eza_level_bounded(args) if {
+    ns := eza_level_eq(args) | eza_level_attached(args) | eza_level_separated(args)
+    count(ns) > 0
+    max(ns) <= 2
+}
 
 # A command is a heavy scan when:
 #   - program is always-heavy, OR
@@ -1164,7 +1195,7 @@ heavy_scan_program if {
 # Path-programs: every non-flag arg is a path (find/du/ls/eza).
 # Pattern-programs: first non-flag arg is the PATTERN (rg/fd/rgrep/
 # grep/egrep) — drop it so pattern text like "/var" isn't a path (G4.6).
-scan_path_programs := {"find", "du", "ls", "eza"}
+scan_path_programs := {"find", "du", "ls", "eza", "fsck", "baobab"}
 scan_pattern_programs := {"rg", "fd", "rgrep", "grep", "egrep"}
 
 scan_path_args(program) := paths if {
@@ -1216,9 +1247,45 @@ shallow_path_is_denied(p) if {
     not groupk_home_deferral(p)
 }
 
+# OT7 (resolved 2026-09-13): only DESCENT-PRUNING caps earn the
+# exemption — `find -maxdepth N` and `rg --max-depth N` stop walking
+# deeper than N (genuinely bounded at N <= 2). `du -d N` does NOT prune
+# (du still stats the ENTIRE tree; -d only bounds printing) → du never
+# exempt — the turn-1 incident was exactly `du -xh -d1 /` hanging 300s.
+maxdepth_separated(args, flag) := {n |
+    some i
+    args[i] == flag
+    count(args) > i + 1
+    s := args[i + 1]
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+maxdepth_inline(args, flag) := {n |
+    some a in args
+    startswith(a, sprintf("%s=", [flag]))
+    s := trim_prefix(a, sprintf("%s=", [flag]))
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+maxdepth_values(args, flag) := maxdepth_separated(args, flag) | maxdepth_inline(args, flag)
+
+depth_cap_bounded if {
+    program_base == "find"
+    ns := maxdepth_values(input.args, "-maxdepth")
+    count(ns) > 0
+    max(ns) <= 2
+}
+depth_cap_bounded if {
+    program_base == "rg"
+    ns := maxdepth_values(input.args, "--max-depth") | maxdepth_values(input.args, "--maxdepth")
+    count(ns) > 0
+    max(ns) <= 2
+}
+
 # Args-based deny: heavy scan program with a denied shallow path arg.
 deny[msg] if {
     heavy_scan_program
+    not depth_cap_bounded
     some p in scan_path_args(program_base)
     shallow_path_is_denied(p)
     msg := "Recursive scan (`find`/`du`/`rg`/`fd`/`grep -r`/`ls -R`) on `/` or a 1–2 level path is blocked — full-tree IO saturates the disk and hangs. Discover first with `eza -T -L 2 <dir>`, then scan a specific ≥3-level target (e.g. `/var/lib/docker`, `/home/bhd/.local`). Unlock: `block-shallow-heavy-scan`."
@@ -1236,6 +1303,7 @@ scan_raw_shallow_token(raw) if { regex.match("(^|\\s)\\$\\{HOME\\}(\\s|$)", raw)
 deny[msg] if {
     heavy_scan_program
     not groupk_programs[program_base]
+    not depth_cap_bounded
     scan_raw_shallow_token(input.raw)
     msg := "Recursive scan (`find`/`du`/`rg`/`fd`/`grep -r`/`ls -R`) on `/` or a 1–2 level path is blocked — full-tree IO saturates the disk and hangs. Discover first with `eza -T -L 2 <dir>`, then scan a specific ≥3-level target (e.g. `/var/lib/docker`, `/home/bhd/.local`). Unlock: `block-shallow-heavy-scan`."
 }

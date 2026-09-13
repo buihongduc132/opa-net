@@ -213,11 +213,7 @@ export const RULES: readonly RuleMeta[] = [
     family: 'scan',
     message:
       'Recursive scan (`find`/`du`/`rg`/`fd`/`grep -r`/`ls -R`) on `/` or a 1–2 level path is blocked — full-tree IO saturates the disk and hangs. Discover first with `eza -T -L 2 <dir>`, then scan a specific ≥3-level target (e.g. `/var/lib/docker`, `/home/bhd/.local`). Unlock: `block-shallow-heavy-scan`.',
-    suggestions: [
-      'eza -T -L 2 <dir>',
-      'du -sh /var/lib/docker',
-      'du -sh /home/bhd/.local',
-    ],
+    suggestions: ['eza -T -L 2 <dir>', 'du -sh /var/lib/docker', 'du -sh /home/bhd/.local'],
   },
   // ── GROUP F: gh / glab ──
   {

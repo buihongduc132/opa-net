@@ -5,13 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-09-13
 
 ### Added
 
 - **GROUP K — home-wide find/grep gate** (BHD-165 / BHD-196 / BHD-203): `block-home-wide-find` denies **home-wide prefix** `find` (`$HOME/**`, `/home/<user>/**`, `~/**`) except the named allow class. `block-home-wide-grep` denies recursive `grep` of `~/.hermes` (incl. `*.db`). Scoped walks (`find .`, repo path, known goal dirs, `<repo>/.worktrees -maxdepth 2`) stay allowed without a key. `.worktrees -maxdepth 99` DENY — maxdepth≤2 is a real gate. Per-rule unlock keys (LD-L1); no god-key (LD-L2). Fail-open (`default allow := true`) unchanged. Default `PI_OPA_TIMEOUT_MS` raised 250 → **5000** so GROUP K denies under parallel `bun test` instead of timing out into `source:'fail-open'`. Reviewers must not need to export `PI_OPA_TIMEOUT_MS=5000`.
+- **GROUP L — shallow heavy-scan ban** (BHD-209 / ban-shallow-heavy-scan LD1–LD4): `block-shallow-heavy-scan` denies heavy recursive scans (`find`/`du`/`rg`/`fd`/`rgrep`/`fsck`/`baobab` always-heavy; `grep`/`egrep -r`; `ls -R`; unbounded `eza -T`) on absolute paths at depth ≤ 2 (`/`, `/var`, `/home/bhd`), rooted in the `du -xh -d1 /` 300s hang on a 99%-full 1T root. Depth ≥ 3 allowed (LD4: `du` at depth 3). `eza -T -L N` stays allowed as the discovery step (LD2) — **only when N ≤ 2** (`eza -T -L 99 /` denies; numeric N parsed from `-L N`/`-LN`/`--level=N`/`--level N`). **Descent-pruning caps exempt at N ≤ 2** (OT7 resolved): `find -maxdepth N`/`-maxdepth=N`, `rg --max-depth N`/`--maxdepth=N`; `du -d N` NOT exempt (du stats the full tree regardless of `-d` — the turn-1 incident was exactly `du -xh -d1 /`). **Wrapper unwrap** (gotcha wrapper-unwrap): parser strips `sudo`/`env`/`nice`/`nohup`/`time`/`timeout`/`stdbuf`/`ionice` prefixes (incl. value flags `-u root`, `env VAR=x`, `timeout 30`) before program classification — `sudo du -sh /var` now DENIES as `du` instead of sailing through as program `sudo`. Supersedes GROUP K's tmp-only allow: `find /tmp` (depth 1) now denies via GROUP L — stale BHD-202 expectation updated. Per-rule unlock `block-shallow-heavy-scan`; fail-open unchanged.
+- **Branch-target-allowlist deny-all bug fixed** (exposed by tests a1f7845): array membership in `branch_target_allowlist` mis-evaluated, denying every allowlisted-branch checkout/switch from the main worktree. Now `git checkout main|dev|staging` from the main worktree → ALLOW; non-allowed branches still DENY.
 - **OT-systemd:** opa-net will **not** stop `wt-reap-idle`. That timer is a systemd user unit and does not pass the pi bash hook. Put the walk on a scoped path (`<repo>/.worktrees -maxdepth 2`) or unlock `block-home-wide-find` from an agent shell; the timer itself is out of this gate.
 - **Parser: unwrap `bash -c` / `sh -c`** (OT-bash-c) so the inner program is classified. Quoted `-c` payload is one arg; the outer `;` splitter no longer cuts through it.
+
+### Fixed
+
+- **E2E fixture isolation from the machine-level git wrapper**: `~/.local/bin/git` (GIT_GUARD_*) guards checkout of protected branches in main worktrees and broke fixture setup (`git checkout main` → non-zero). Fixture execSync now injects `GIT_GUARD_DISABLE=1` explicitly — bun's execSync does not propagate post-startup `process.env` mutations. pi-opa-net reads `PIOPANET_*`, never `GIT_GUARD_*`, so no rule observes the bypass.
 
 ## [0.6.0] - 2026-08-16
 

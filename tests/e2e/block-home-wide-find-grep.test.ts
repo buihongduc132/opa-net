@@ -382,11 +382,18 @@ describe.if(!SKIP_REASON)('home-wide find/grep gate — ALLOW scoped walks', () 
     expect(exitCode).toBe(0);
   });
 
-  it('find /tmp -name completion.json → ALLOW (tmp-only, no home root)', async () => {
+  it('find /tmp -name completion.json → DENY (shallow /tmp now banned by GROUP L LD1)', async () => {
+    // GROUP K originally allowed tmp-only walks (no home root). GROUP L
+    // (ban-shallow-heavy-scan, locked 2026-09-09 LD1) later banned ALL heavy
+    // scans on depth<=2 absolute paths — /tmp is depth 1, so the combined
+    // decision is deny via block-shallow-heavy-scan. GROUP K no longer fires.
     expectRuleRegistered(FIND_RULE);
     const { json, exitCode } = await runEval('find /tmp -name completion.json');
-    expect(json.decision).toBe('allow');
-    expect(exitCode).toBe(0);
+    expect(json.decision).toBe('deny');
+    expect(exitCode).toBe(2);
+    const reasonIds = (json.reasons ?? []).map((r: { rule_id?: string }) => r.rule_id);
+    expect(reasonIds).toContain('block-shallow-heavy-scan');
+    expect(reasonIds).not.toContain('block-home-wide-find');
   });
 
   it('grep foo ./README.md → ALLOW (non-recursive, non-home)', async () => {

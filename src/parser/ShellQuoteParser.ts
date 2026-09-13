@@ -1,6 +1,7 @@
 import { parse as shellQuoteParse } from 'shell-quote';
 import { stripWithMeta } from './stripGitGlobalOptions.ts';
 import type { CommandParser, ParsedCommand } from './types.ts';
+import { unwrapWrapperTokens } from './unwrapWrapperProgram.ts';
 
 /**
  * Programs that use a `[program, subcommand, args...]` shape.
@@ -61,7 +62,10 @@ export class ShellQuoteParser implements CommandParser {
 
 /** Apply program-aware subcommand classification. */
 function classify(strings: string[], raw: string, hasMeta: boolean): ParsedCommand {
-  const [programRaw, ...rest] = strings;
+  // Gotcha wrapper-unwrap: `sudo du -sh /` must classify as `du` — a wrapper
+  // prefix otherwise defeats every program_base-keyed rule (GROUP K/L etc.).
+  // input.raw keeps the FULL original (wrapper included) for raw-token rules.
+  const [programRaw, ...rest] = unwrapWrapperTokens(strings);
   const program = programRaw.toLowerCase();
   const confidence = hasMeta ? 'partial' : 'full';
 
