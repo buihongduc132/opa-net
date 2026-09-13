@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 const ROOT = resolve(import.meta.dir, '../../');
 const BIN = resolve(ROOT, 'bin/pi-opa-net.js');
 const OPA = process.env.HOME
-  ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.1/opa`
+  ? `${process.env.HOME}/.local/share/mise/installs/opa/1.18.2/opa`
   : 'opa';
 const opaAvailable = existsSync(OPA);
 
@@ -34,7 +34,7 @@ function runCli(command: string, mode: 'json' | 'claude-code' = 'json'): CaseRes
     const stdout = execFileSync('bun', ['run', BIN, ...args], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, HOME: process.env.HOME },
+      env: { ...process.env, HOME: process.env.HOME, PIOPANET_DRY_RUN: '1' },
     });
     return { exitCode: 0, stdout, record: tryParse(stdout) };
   } catch (err) {
@@ -98,6 +98,193 @@ const DENY_CASES: ExpectDeny[] = [
     ruleId: 'block-glab-repo-delete-archive',
     family: 'glab',
   },
+  // GROUP G — tmux / pkill / killall session protection (cc-safety-net parity).
+  // RED: these rule IDs are not yet in the pi-opa-net engine; the cases below
+  // assert deny + provenance and will fail until policy/safety.rego + catalog
+  // are extended with the 4 missing rules.
+  {
+    command: 'tmux kill-server',
+    ruleId: 'block-tmux-kill-server',
+    family: 'tmux',
+  },
+  {
+    command: 'tmux kill-session -t foo',
+    ruleId: 'block-tmux-kill-session',
+    family: 'tmux',
+  },
+  {
+    command: 'pkill tmux',
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+  },
+  {
+    command: 'killall tmux',
+    ruleId: 'block-killall-tmux-wezterm',
+    family: 'killall',
+  },
+  // GROUP H — herdr session protection.
+  {
+    command: 'herdr server stop',
+    ruleId: 'block-herdr-server-stop',
+    family: 'herdr',
+  },
+  // GROUP I — pulumi IaC safety.
+  {
+    command: 'pulumi up --force',
+    ruleId: 'block-pulumi-up-force',
+    family: 'pulumi',
+  },
+  {
+    command: 'pulumi up -y',
+    ruleId: 'block-pulumi-up-force',
+    family: 'pulumi',
+  },
+  {
+    command: 'pulumi destroy',
+    ruleId: 'block-pulumi-destroy',
+    family: 'pulumi',
+  },
+  {
+    command: 'pulumi stack rm prod',
+    ruleId: 'block-pulumi-stack-rm',
+    family: 'pulumi',
+  },
+  {
+    command: 'pulumi state delete urn:foo',
+    ruleId: 'block-pulumi-state-delete',
+    family: 'pulumi',
+  },
+  // GROUP J — DevOps destructive-CLI coverage.
+  {
+    command: 'terraform destroy',
+    ruleId: 'block-iac-destroy',
+    family: 'iac',
+  },
+  {
+    command: 'terraform apply -auto-approve',
+    ruleId: 'block-iac-apply-autoapprove',
+    family: 'iac',
+  },
+  {
+    command: 'tofu destroy',
+    ruleId: 'block-iac-destroy',
+    family: 'iac',
+  },
+  {
+    command: 'terragrunt run destroy',
+    ruleId: 'block-terragrunt-run-destroy',
+    family: 'iac',
+  },
+  {
+    command: 'terraform state rm some.resource',
+    ruleId: 'block-iac-state-rm',
+    family: 'iac',
+  },
+  {
+    command: 'nomad job stop api',
+    ruleId: 'block-nomad-job-stop',
+    family: 'nomad',
+  },
+  {
+    command: 'nomad system gc',
+    ruleId: 'block-nomad-system-gc',
+    family: 'nomad',
+  },
+  {
+    command: 'nomad node drain -enable node1',
+    ruleId: 'block-nomad-node-drain',
+    family: 'nomad',
+  },
+  {
+    command: 'consul kv delete foo/bar',
+    ruleId: 'block-consul-kv-delete',
+    family: 'consul',
+  },
+  {
+    command: 'consul leave',
+    ruleId: 'block-consul-leave',
+    family: 'consul',
+  },
+  {
+    command: 'vault kv delete secret/foo',
+    ruleId: 'block-vault-kv-delete',
+    family: 'vault',
+  },
+  {
+    command: 'vault secrets disable pki',
+    ruleId: 'block-vault-engine-disable',
+    family: 'vault',
+  },
+  {
+    command: 'vault token revoke abc',
+    ruleId: 'block-vault-revoke',
+    family: 'vault',
+  },
+  {
+    command: 'vault seal',
+    ruleId: 'block-vault-seal',
+    family: 'vault',
+  },
+  {
+    command: 'aws ec2 terminate-instances --instance-ids i-1',
+    ruleId: 'block-aws-destructive-verbs',
+    family: 'aws',
+  },
+  {
+    command: 'aws s3 rm s3://bucket/key',
+    ruleId: 'block-aws-s3-rm',
+    family: 'aws',
+  },
+  {
+    command: 'pm2 kill',
+    ruleId: 'block-pm2-kill',
+    family: 'svcman',
+  },
+  {
+    command: 'systemctl stop nginx',
+    ruleId: 'block-systemctl-stop',
+    family: 'svcman',
+  },
+  {
+    command: 'dd if=/dev/zero of=/dev/sda',
+    ruleId: 'block-dd-of-dev',
+    family: 'dd',
+  },
+  {
+    command: 'docker-compose --project-name=litellm down',
+    ruleId: 'block-docker-compose-down-litellm',
+    family: 'docker',
+  },
+  {
+    command: 'herdr session stop foo',
+    ruleId: 'block-herdr-session-stop',
+    family: 'herdr',
+  },
+  {
+    command: 'herdr session delete bar',
+    ruleId: 'block-herdr-session-delete',
+    family: 'herdr',
+  },
+  {
+    command: 'herdr workspace close baz',
+    ruleId: 'block-herdr-workspace-close',
+    family: 'herdr',
+  },
+  {
+    command: 'pkill herdr',
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+  },
+  {
+    command: 'killall herdr',
+    ruleId: 'block-killall-tmux-wezterm',
+    family: 'killall',
+  },
+  {
+    command: 'pkill bermuda',
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+  },
 ];
 
 const ALLOW_CASES: ExpectAllow[] = [
@@ -106,6 +293,34 @@ const ALLOW_CASES: ExpectAllow[] = [
   { command: 'git status' }, // not blocked
   { command: 'docker ps' }, // not blocked
   { command: 'ls -la' }, // not blocked
+  { command: 'pulumi preview' }, // read-only IaC op stays allowed
+  { command: 'pulumi up' }, // interactive up (with preview) stays allowed
+  { command: 'terraform plan' }, // read-only IaC plan
+  { command: 'terraform state list' }, // read-only state listing
+  { command: 'nomad job status api' }, // read-only Nomad status
+  { command: 'consul kv get foo/bar' }, // read-only Consul KV
+  { command: 'vault kv get secret/foo' }, // read-only Vault read
+  { command: 'vault status' },
+  { command: 'aws s3 ls' }, // read-only AWS listing
+  { command: 'pm2 list' }, // read-only pm2 status
+  { command: 'systemctl status nginx' }, // read-only systemd status
+  { command: 'systemctl daemon-reload' }, // safe systemd op
+  { command: 'dd if=/dev/zero of=/tmp/img' }, // dd to regular file stays allowed
+  { command: 'dd if=/dev/zero of=/dev/null' }, // /dev/null is safe (not a block device)
+  { command: 'pm2 start app.js --name restart' }, // verb matched as flag value must NOT deny
+  { command: 'pm2 logs --nostream' }, // read-only pm2 logs
+  { command: 'docker-compose --project-name=litellm ps' }, // read-only compose status
+  // GROUP G carve-outs (cc-safety-net parity).
+  // RED: the engine must NOT deny these read-only / unrelated targets once the
+  // new tmux/pkill/killall rules land. They will pass today because the rules
+  // do not exist yet, but they pin the carve-out contract for the GREEN phase.
+  { command: 'tmux ls' }, // read-only tmux — must stay allowed
+  { command: 'pkill firefox' }, // unrelated target — must stay allowed
+  { command: 'killall vim' }, // unrelated target — must stay allowed
+  // GROUP H carve-outs (herdr read-only commands).
+  { command: 'herdr session list' }, // read-only — must stay allowed
+  { command: 'herdr workspace list' }, // read-only — must stay allowed
+  { command: 'pkill bermuda-helper' }, // unrelated target prefix — must stay allowed
 ];
 
 describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
@@ -155,6 +370,16 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
     }
   });
 
+  it('dry-run mode: PIOPANET_DRY_RUN=1 adds dry_run flag to metadata', () => {
+    const r = runCli('git stash list', 'json');
+    expect(r.exitCode).toBe(0);
+    const rec = r.record!;
+    const metadata = rec.metadata as Record<string, unknown>;
+    expect(metadata.dry_run).toBe(true);
+    expect(metadata.pi_opa_net_version).toBeDefined();
+    expect(typeof metadata.pi_opa_net_version).toBe('string');
+  });
+
   it('claude-code mode: allow emits empty stdout (CA2)', () => {
     const r = runCli('git stash list', 'claude-code');
     expect(r.exitCode).toBe(0);
@@ -175,8 +400,8 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
       const reasons = (r.record?.reasons as Array<Record<string, unknown>>) ?? [];
       for (const x of reasons) fired.add(x.rule_id as string);
     }
-    // 37 catalog rules → 40% = 15
-    expect(fired.size).toBeGreaterThanOrEqual(15);
+    // 41 catalog rules → 40% = 17
+    expect(fired.size).toBeGreaterThanOrEqual(17);
   }, 30000); // runs ~20 CLI subprocesses serially; needs headroom over the 5s default
 
   it('fail-open path: invalid policy path still resolves (source != crash)', () => {
@@ -186,7 +411,7 @@ describe.skipIf(!opaAvailable)('pi-opa-net E2E (live CLI + OPA)', () => {
       const stdout = execFileSync('bun', args, {
         encoding: 'utf8',
         timeout: 10000,
-        env: { ...process.env, HOME: process.env.HOME },
+        env: { ...process.env, HOME: process.env.HOME, PIOPANET_DRY_RUN: '1' },
       });
       const rec = JSON.parse(stdout);
       // fail-open default → allow with source fail-open OR opa if it tolerated.

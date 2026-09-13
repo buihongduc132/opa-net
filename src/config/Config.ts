@@ -1,5 +1,6 @@
-/**
- * Fail-mode when the decision engine is unreachable [OT2 resolution].
+import { existsSync } from 'node:fs';
+
+/** Fail-mode when the decision engine is unreachable [OT2 resolution].
  * - `open`: allow the command through (default — matches pi-safety-net fork).
  * - `closed`: block the command until engine responds.
  */
@@ -7,6 +8,15 @@ export type FailMode = 'open' | 'closed';
 
 /** Cache TTL in ms. 0 disables caching. */
 export const DEFAULT_CACHE_TTL_MS = 0;
+
+/**
+ * Default OPA eval timeout (ms). 250ms was enough for the 42-rule catalog and
+ * fails open under GROUP K + parallel `bun test` (source:'fail-open' instead
+ * of a real deny). 5000ms covers compile+eval under load without changing
+ * fail-open as the policy default (`default allow := true`). Reviewers must
+ * not need to export PI_OPA_TIMEOUT_MS=5000.
+ */
+export const DEFAULT_OPA_TIMEOUT_MS = 5000;
 
 export interface EngineConfig {
   /** Path to the OPA binary. If unset, auto-discovered via PATH + mise. */
@@ -23,6 +33,16 @@ export interface EngineConfig {
   readonly hostname?: string;
   /** Calling session ID for metadata (pi/claude session). Empty if none. */
   readonly sessionId?: string;
+  /** Unlock keys from PIOPANET_UNLOCK_KEYS / --unlock (comma-separated env). */
+  readonly unlockKeys?: readonly string[];
+  /** Path to the deploy-local salt file (or PIOPANET_UNLOCK_SALT override). */
+  readonly unlockSaltPath?: string;
+  /** Agent ID for unlock audit metadata (PIOPANET_AGENT_ID). */
+  readonly unlockAgentId?: string;
+  /** Allowed branches for branch-target-allowlist rule (LD1). Default: dev,staging,main,master. */
+  readonly allowedBranches?: readonly string[];
+  /** Allowed prefixes for worktree-path-allowlist rule (LD3). Default: .worktrees,worktrees,~/.config/superpowers/worktrees. */
+  readonly worktreeAllowedDirs?: readonly string[];
 }
 
 const ENV = process.env;
@@ -33,8 +53,8 @@ export function resolveOpaBinary(explicit?: string): string {
   if (ENV.PI_OPA_BINARY) return ENV.PI_OPA_BINARY;
   // mise install path (LD2: OPA lazy-loaded on every dev box).
   const misePath = `${process.env.HOME}/.local/share/mise/installs/opa`;
-  try {
-    const versions = readdirSafe(misePath);
+  const versions = readdirSafe(misePath);
+  if (versions.length > 0) {
     // Prefer the most specific semver; fall back to 'latest'.
     const pick =
       versions
@@ -42,10 +62,12 @@ export function resolveOpaBinary(explicit?: string): string {
         .sort()
         .at(-1) ?? 'latest';
     const candidate = `${misePath}/${pick}/opa`;
-    return candidate;
-  } catch {
-    return 'opa';
+    if (existsSync(candidate)) return candidate;
   }
+  // CI (setup-opa) and any non-mise host: fall back to PATH `opa`.
+  // Previously returned the nonexistent `<mise>/latest/opa` here, which made
+  // the engine fail-open on GitHub runners and broke every deny e2e.
+  return 'opa';
 }
 
 function readdirSafe(path: string): string[] {
@@ -62,10 +84,32 @@ function readdirSafe(path: string): string[] {
 /** Build an EngineConfig from environment + defaults. */
 export function configFromEnv(policyPath: string): EngineConfig {
   const failMode: FailMode = (ENV.PI_OPA_FAIL_MODE as FailMode) === 'closed' ? 'closed' : 'open';
-  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10) : 250;
-  const cacheTtlMs = ENV.PI_OPA_CACHE_TTL_MS
+  const timeoutMs = ENV.PI_OPA_TIMEOUT_MS
+    ? Number.parseInt(ENV.PI_OPA_TIMEOUT_MS, 10)
+    : DEFAULT_OPA_TIMEOUT_MS;
+  const baseCacheTtlMs = ENV.PI_OPA_CACHE_TTL_MS
     ? Number.parseInt(ENV.PI_OPA_CACHE_TTL_MS, 10)
     : DEFAULT_CACHE_TTL_MS;
+
+  // Unlock keys: PIOPANET_UNLOCK_KEYS (comma-separated, trimmed).
+  const unlockKeys = (ENV.PIOPANET_UNLOCK_KEYS ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0);
+
+  // LD-G3: force cacheTtlMs=0 when unlock keys are present (cache poisoning guard).
+  const cacheTtlMs = unlockKeys.length > 0 ? 0 : baseCacheTtlMs;
+
+  // Salt path: PIOPANET_UNLOCK_SALT or PIOPANET_UNLOCK_SALT_FILE → default ~/.pi-opa-net/salt.
+  const unlockSaltPath =
+    ENV.PIOPANET_UNLOCK_SALT ?? ENV.PIOPANET_UNLOCK_SALT_FILE ?? defaultSaltPath();
+
+  const unlockAgentId = ENV.PIOPANET_AGENT_ID;
+
+  // LD1/LD3: config-driven allowlists.
+  const allowedBranches = parseAllowedBranches(ENV.PIOPANET_ALLOWED_BRANCHES);
+  const worktreeAllowedDirs = parseWorktreeAllowedDirs(ENV.PIOPANET_WORKTREE_ALLOWED_DIRS);
+
   return {
     opaBinary: resolveOpaBinary(),
     policyPath,
@@ -74,5 +118,53 @@ export function configFromEnv(policyPath: string): EngineConfig {
     cacheTtlMs,
     hostname: ENV.PI_OPA_HOSTNAME,
     sessionId: ENV.PI_OPA_SESSION_ID,
+    unlockKeys,
+    unlockSaltPath,
+    unlockAgentId,
+    allowedBranches,
+    worktreeAllowedDirs,
   };
+}
+
+/** Parse PIOPANET_ALLOWED_BRANCHES. Default: dev,staging,main,master. Empty → []. */
+export function parseAllowedBranches(envValue?: string): string[] {
+  if (envValue === undefined) {
+    return ['dev', 'staging', 'main', 'master'];
+  }
+  return envValue
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** Parse PIOPANET_WORKTREE_ALLOWED_DIRS. Default: .worktrees,worktrees,~/.config/superpowers/worktrees. Empty → []. */
+export function parseWorktreeAllowedDirs(envValue?: string): string[] {
+  if (envValue === undefined) {
+    const home = ENV.HOME ?? process.env.HOME ?? '';
+    return ['.worktrees', 'worktrees', `${home}/.config/superpowers/worktrees`];
+  }
+  const raw = envValue
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  // Expand ~ to home dir.
+  return raw.map((s) => expandTilde(s));
+}
+
+/** Expand leading ~ to $HOME (or os.homedir() cross-platform). */
+function expandTilde(path: string): string {
+  if (path === '~') {
+    return ENV.HOME ?? process.env.HOME ?? path;
+  }
+  if (path.startsWith('~/')) {
+    const home = ENV.HOME ?? process.env.HOME ?? '';
+    return `${home}${path.slice(1)}`;
+  }
+  return path;
+}
+
+/** Default salt file path: ~/.pi-opa-net/salt. */
+function defaultSaltPath(): string {
+  const home = ENV.HOME ?? process.env.HOME ?? '';
+  return `${home}/.pi-opa-net/salt`;
 }

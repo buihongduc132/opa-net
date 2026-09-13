@@ -1,0 +1,33 @@
+# Locked decisions — ban-shallow-heavy-scan
+
+- id: LD1
+  turn: turn1
+  parts: ["user directive"]
+  user_quote: |
+    "ban all kind of grep / find or any HEAVY cmd from root / and /<1lvl>/<2lvl>; Only be able to these kind of heavy cmd in level 3 and below."
+  decision: Heavy recursive commands banned at depth 0/1/2 (/ , /x , /x/y); allowed only at depth >= 3.
+  status: locked
+
+- id: LD2
+  turn: turn1
+  parts: ["user directive"]
+  user_quote: |
+    "make the message to instruct the agent to use eza to find out the directory first before actually doing the recursive search"
+  decision: Deny message must instruct using `eza` first to discover dirs before any recursive search.
+  status: locked
+
+- id: LD3
+  turn: turn1
+  parts: ["user directive"]
+  user_quote: |
+    "LIST all the cmd / tooling in the current machine , all of the one that could do heavy / saturate disk IO / cpu / ram must be BANNED"
+  decision: Enumerate + ban every installed tool that can saturate disk IO / CPU / RAM (see turn2 list).
+  status: locked
+
+- id: LD4
+  turn: turn3
+  parts: ["user directive"]
+  user_quote: |
+    "For DU , depth 3"
+  decision: `du` allowed at depth 3 (interpreted as >=3); banned at depth 0/1/2.
+  status: locked

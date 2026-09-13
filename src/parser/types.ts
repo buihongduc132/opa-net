@@ -13,6 +13,8 @@ export interface ParsedCommand {
   readonly args: readonly string[];
   /** Parser fidelity — surfaces how well the command was parsed [OT1]. */
   readonly parseConfidence: ParseConfidence;
+  /** Captured -C <path> from git global options (LD8). Used for cwd propagation to signal collection. */
+  readonly gitCwd?: string;
 }
 
 export type ParseConfidence = 'full' | 'partial' | 'regex-only' | 'failed';

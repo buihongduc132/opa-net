@@ -20,11 +20,21 @@ Three limitations of today's asymmetric, agent-specific guard output that this f
 
 ## Status
 
-- **Stable:** v0.1.0 — schema v1.0, 37-rule catalog, full TDD coverage
+- **Stable:** v0.2.0 — schema v1.0 (additive), 42-rule catalog, capability-based unlock-keys, full TDD coverage (304 tests)
+  - Cupcake-compatible policy: `.cupcake/policies/claude/cc_safety_net_parity.rego` (all 42 active `cc-safety-net` rules in OPA/Rego v1)
+  - **Capability-based unlock-keys** (v0.2.0) — trusted agents present a per-rule salted HMAC key; TS-side post-eval filter demotes matching deny reasons.
 - **Engine:** OPA 1.x (lazy-loaded on every dev box)
 - **Scope:** bash command guarding only (see [`docs/locked-decisions.yaml`](docs/locked-decisions.yaml) LD3)
 - **Pi extension:** the thin tool_call adapter lives in a separate future repo (`pi-opa-net-ext`, per OT5) — this package is the engine + library
 
+## Features
+
+- **OPA-backed decisions** — every command evaluated by an [OPA](https://www.openpolicyagent.org/)/Rego policy; 42-rule catalog (full `cc-safety-net` user-rule parity).
+- **Symmetric structured output** — both allow AND deny emit the full `decision-output.v1` schema with `reasons[].rule_id` provenance, fail-mode observability, and parse-confidence surfacing.
+- **Fail-open by default** — never bricks the shell; matches the `pi-safety-net` fork guarantee. `PI_OPA_FAIL_MODE=closed` for fail-closed.
+- **Capability-based unlock-keys** (v0.2.0) — grant trusted agents a per-rule salted HMAC key (long-lived `ll_<16hex>` or TTL `ttl.<exp>.<16hex>`). TS-side post-eval filter demotes matching deny reasons. All-or-nothing multi-rule semantics; every bypass is auditable via `source:'opa-unlocked'`.
+- **Claude Code hook compatible** — exit codes `0 = allow`, `2 = deny`; JSON on stdout.
+- **Pluggable seams** — `SaltResolver` (deploy-local salt now, remote/keychain later) and `AuditSink` (decision-record only now, file/webhook later).
 ## Installation
 
 ### Prerequisites
@@ -46,6 +56,33 @@ bun add pi-opa-net
 
 # run the CLI directly via bun
 bunx pi-opa-net eval "git stash pop"
+```
+
+### For AI Agents (pi / OpenCode / Claude Code / Codex)
+
+Add to your `settings.json`:
+
+```jsonc
+{
+  "packages": ["pi-opa-net"]
+}
+```
+
+Or tell your agent:
+
+```
+Install and configure pi-opa-net by following:
+https://raw.githubusercontent.com/buihongduc132/pi-opa-net/refs/heads/main/README.md
+```
+
+### For pi (git-sourced)
+
+In `settings.json`:
+
+```jsonc
+{
+  "packages": ["https://github.com/buihongduc132/pi-opa-net"]
+}
 ```
 
 ## Usage
@@ -164,9 +201,28 @@ The default `open` matches the [`pi-safety-net`](https://www.npmjs.com/package/p
 |-----|---------|---------|
 | `PI_OPA_BINARY` | auto (PATH → mise) | OPA binary path |
 | `PI_OPA_FAIL_MODE` | `open` | fail-mode |
-| `PI_OPA_TIMEOUT_MS` | `250` | OPA eval timeout |
+| `PI_OPA_TIMEOUT_MS` | `5000` | OPA eval timeout (was 250; GROUP K compile+eval under load needs headroom so deny-class does not fail-open) |
 | `PI_OPA_HOSTNAME` | `os.hostname()` | metadata.hostname |
 | `PI_OPA_SESSION_ID` | `""` | metadata.session_id |
+
+### Audit sinks (pi extension)
+
+The pi extension writes audit entries to a filesystem sink by default. To also forward to an OTLP/HTTP collector:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PIOPANET_OTEL_ENABLED` | unset | Set to `1` to enable OTLP forwarding |
+| `PIOPANET_OTEL_ENDPOINT` | unset | Collector URL (required when enabled) |
+| `PIOPANET_OTEL_SERVICE_NAME` | `pi-opa-net` | Service name in OTLP resource |
+| `PIOPANET_OTEL_HEADERS` | unset | Extra headers as `k=v,k2=v2` (avoid secrets) |
+
+When enabled + endpoint set: `MultiSink([filesystem, otlp])`. When enabled but no endpoint: filesystem only + stderr warn.
+
+### Rules
+
+- `block-rm-rf-dangerous-target` — blocks `rm -rf` on `/`, `~`, `.`, `..`, `*`, `/*`, `$HOME`, `/home`. Safe carve-outs: `/tmp/<specific>`, `./<specific>`, named dirs.
+- `block-home-wide-find` — blocks **home-wide prefix** `find` (`$HOME/**`, `/home/<user>/**`, `~/**`, including `.ssh` / `.config` / `Documents/…`). Scoped walks (`find .`, repo path, `~/.pi/goals`, `~/.verifier-loop/goals`, `<repo>/.worktrees -maxdepth 2`) stay allowed. `.worktrees -maxdepth 99` is denied. Unlock key: `block-home-wide-find`. **OT-systemd:** opa-net will not stop the `wt-reap-idle` user timer — that unit does not pass the pi bash hook.
+- `block-home-wide-grep` — blocks recursive `grep` of `~/.hermes` (including `*.db`). Cwd-scoped `grep -r` / `rg` stay allowed. Unlock key: `block-home-wide-grep`.
 
 ## Develop
 
@@ -179,12 +235,17 @@ bun run lint             # biome
 bun run smoke            # one-shot CLI check
 ```
 
-E2E tests run the live CLI against real OPA + the real policy, covering ≥40% of the 37-rule catalog.
+E2E tests run the live CLI against real OPA + the real policy, covering ≥40% of the 42-rule catalog.
+
+## Cupcake-compatible policy
+
+This repo also ships a Cupcake-format OPA/Rego policy at `.cupcake/policies/claude/cc_safety_net_parity.rego` that ports all 42 active `cc-safety-net` user rules. It can be evaluated directly by OPA or consumed as a Cupcake catalog overlay. See [`docs/cupcake-parity.md`](docs/cupcake-parity.md) for details, including the standalone `opa eval` examples and the input/output contract.
 
 ## Decisions & open threads
 
 - [`docs/locked-decisions.yaml`](docs/locked-decisions.yaml) — LD1–LD5 (immutable inputs).
 - [`docs/open-threads.yaml`](docs/open-threads.yaml) — OT1–OT5 resolved at implementation time.
+- [`docs/cupcake-parity.md`](docs/cupcake-parity.md) — Cupcake-format policy documentation + standalone `opa eval` usage.
 
 ## Project health
 
@@ -198,6 +259,8 @@ E2E tests run the live CLI against real OPA + the real policy, covering ≥40% o
 - [`pi-safety-net`](https://www.npmjs.com/package/pi-safety-net) — the fail-open fork of cc-safety-net (Path A: non-pi agents). pi-opa-net is Path B (OPA-backed, structured output).
 - [`cc-safety-net`](https://www.npmjs.com/package/cc-safety-net) — upstream Claude Code safety net.
 
-## License
-
 MIT © [buihongduc132](https://github.com/buihongduc132)
+
+## Repository
+
+**GitHub**: [buihongduc132/pi-opa-net](https://github.com/buihongduc132/pi-opa-net)

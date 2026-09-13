@@ -1,4 +1,4 @@
-import type { RuleMeta } from './RuleRegistry.ts';
+import type { RuleFamily, RuleMeta } from './RuleRegistry.ts';
 
 /**
  * Canonical rule catalog — mirrors policy/safety.rego message-for-message.
@@ -180,6 +180,41 @@ export const RULES: readonly RuleMeta[] = [
     family: 'rm',
     message: "Removing symlink subdirs in beads/ skill is blocked (rule is misnamed 'allow').",
   },
+  {
+    ruleId: 'block-rm-rf-dangerous-target',
+    family: 'rm',
+    message:
+      'rm -rf on dangerous targets (/, ~, ., .., *, /*, $HOME, /home) is blocked. Use specific paths like /tmp/dir or ./subdir.',
+  },
+  // ── GROUP K: home-wide find/grep (BHD-165) ──
+  {
+    ruleId: 'block-home-wide-find',
+    family: 'find',
+    message:
+      'Home-wide find ($HOME/**, /home/<user>/**, ~/**) is blocked. Scope to cwd, a repo, or a known goal dir. .worktrees walks require -maxdepth 2. Unlock with block-home-wide-find.',
+    suggestions: [
+      'find .',
+      'find <repo>',
+      'find ~/.pi/goals',
+      'find ~/.verifier-loop/goals',
+      'find <repo>/.worktrees -maxdepth 2',
+    ],
+  },
+  {
+    ruleId: 'block-home-wide-grep',
+    family: 'grep',
+    message:
+      'Recursive grep of ~/.hermes (including *.db) is blocked. Scope to cwd or a file. Unlock with block-home-wide-grep.',
+    suggestions: ['grep -r foo .', 'rg -l <pattern> .'],
+  },
+  // ── GROUP L: shallow heavy scan (BHD-209) ──
+  {
+    ruleId: 'block-shallow-heavy-scan',
+    family: 'scan',
+    message:
+      'Recursive scan (`find`/`du`/`rg`/`fd`/`grep -r`/`ls -R`) on `/` or a 1–2 level path is blocked — full-tree IO saturates the disk and hangs. Discover first with `eza -T -L 2 <dir>`, then scan a specific ≥3-level target (e.g. `/var/lib/docker`, `/home/bhd/.local`). Unlock: `block-shallow-heavy-scan`.',
+    suggestions: ['eza -T -L 2 <dir>', 'du -sh /var/lib/docker', 'du -sh /home/bhd/.local'],
+  },
   // ── GROUP F: gh / glab ──
   {
     ruleId: 'block-gh-repo-delete-archive',
@@ -206,15 +241,269 @@ export const RULES: readonly RuleMeta[] = [
     family: 'glab',
     message: 'Public GitLab repository creation is blocked by default.',
   },
+  // ── GROUP G: tmux / pkill / killall session protection (cc-safety-net parity) ──
+  {
+    ruleId: 'block-tmux-kill-server',
+    family: 'tmux',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+    matchArgs: ['kill-server'],
+  },
+  {
+    ruleId: 'block-tmux-kill-session',
+    family: 'tmux',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+    matchArgs: ['kill-session'],
+  },
+  {
+    ruleId: 'block-pkill-tmux-wezterm',
+    family: 'pkill',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+  },
+  {
+    ruleId: 'block-killall-tmux-wezterm',
+    family: 'killall',
+    message:
+      'Killing the tmux/wezterm server destroys ALL sessions, panes, and in-flight work across every client. Do NOT run this automatically \u2014 hand the exact command back to the user and let them run it themselves.',
+  },
+  // ── GROUP H: herdr session protection ──
+  {
+    ruleId: 'block-herdr-server-stop',
+    family: 'herdr',
+    message:
+      'Stopping the herdr server destroys all active workspaces, sessions, and agent state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-herdr-session-stop',
+    family: 'herdr',
+    message:
+      'Stopping a herdr session destroys in-flight agent work. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-herdr-session-delete',
+    family: 'herdr',
+    message:
+      'Deleting a herdr session removes persisted state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-herdr-workspace-close',
+    family: 'herdr',
+    message:
+      'Closing a herdr workspace destroys active agent state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  // ── GROUP I: pulumi IaC ──
+  {
+    ruleId: 'block-pulumi-up-force',
+    family: 'pulumi',
+    message:
+      'pulumi up with --force/--yes/--skip-preview bypasses the deployment preview and applies changes without review. Run `pulumi preview` and apply only with explicit approval.',
+    suggestions: ['pulumi preview', 'pulumi up'],
+  },
+  {
+    ruleId: 'block-pulumi-destroy',
+    family: 'pulumi',
+    message:
+      'pulumi destroy tears down ALL resources in the stack. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-pulumi-stack-rm',
+    family: 'pulumi',
+    message:
+      'pulumi stack rm deletes the stack and its state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-pulumi-state-delete',
+    family: 'pulumi',
+    message:
+      'pulumi state delete/unprotect mutates stack state and can orphan or expose real infrastructure. Do NOT run this automatically.',
+  },
+  // ── GROUP J: DevOps destructive-CLI ──
+  {
+    ruleId: 'block-iac-destroy',
+    family: 'iac',
+    message:
+      'terraform/tofu/terragrunt destroy tears down ALL resources managed by the stack. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-iac-apply-autoapprove',
+    family: 'iac',
+    message:
+      'terraform/tofu/terragrunt apply -auto-approve bypasses the plan review prompt. Run `terraform plan` and apply only with explicit approval.',
+    suggestions: ['terraform plan'],
+  },
+  {
+    ruleId: 'block-iac-state-rm',
+    family: 'iac',
+    message:
+      'terraform/tofu/terragrunt state rm/delete removes resources from state and can orphan real infrastructure. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-terragrunt-run-destroy',
+    family: 'iac',
+    message:
+      'terragrunt run destroy applies a destroy plan across the module tree. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-terragrunt-run-apply-autoapprove',
+    family: 'iac',
+    message:
+      'terragrunt run apply --auto-approve bypasses plan review across every module in the tree. Apply only with explicit approval.',
+  },
+  {
+    ruleId: 'block-nomad-job-stop',
+    family: 'nomad',
+    message:
+      'nomad job stop/deregister tears down scheduled work. Re-deploy via the Nomad job specification instead of manual stops.',
+  },
+  {
+    ruleId: 'block-nomad-alloc-stop',
+    family: 'nomad',
+    message:
+      'Direct alloc stop/signal/restart bypasses scheduler safety. Use deployment-level operations instead.',
+  },
+  {
+    ruleId: 'block-nomad-system-gc',
+    family: 'nomad',
+    message:
+      'nomad system gc force-garbage-collects the cluster and can disrupt running work. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-nomad-node-drain',
+    family: 'nomad',
+    message:
+      'nomad node drain/eligibility evicts all allocations from a node. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-nomad-deployment-fail',
+    family: 'nomad',
+    message:
+      'nomad deployment fail/pause aborts a rolling deployment mid-flight. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-nomad-volume-detach',
+    family: 'nomad',
+    message:
+      'nomad volume detach detaches storage from running work. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-consul-kv-delete',
+    family: 'consul',
+    message:
+      'consul kv delete removes cluster configuration state. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-consul-services-deregister',
+    family: 'consul',
+    message:
+      'consul services deregister breaks service discovery for the node. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-consul-leave',
+    family: 'consul',
+    message:
+      'consul leave/force-leave removes the agent from the cluster. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-consul-operator-remove-peer',
+    family: 'consul',
+    message:
+      'consul operator raft remove-peer mutates Raft consensus membership. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-vault-kv-delete',
+    family: 'vault',
+    message:
+      'vault kv delete/destroy removes secret data. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-vault-engine-disable',
+    family: 'vault',
+    message:
+      'vault secrets/auth disable turns off a secrets engine or auth method. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-vault-revoke',
+    family: 'vault',
+    message: 'vault token/lease revoke invalidates credentials. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-vault-seal',
+    family: 'vault',
+    message:
+      'vault seal makes the Vault sealed and unavailable. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-vault-operator-remove-peer',
+    family: 'vault',
+    message:
+      'vault operator raft remove-peer mutates Raft consensus membership. Do NOT run this automatically.',
+  },
+  {
+    ruleId: 'block-aws-destructive-verbs',
+    family: 'aws',
+    message:
+      'Destructive AWS operation tokens (terminate/stop/delete class) are blocked by default. Use read-only describe/list/get operations.',
+  },
+  {
+    ruleId: 'block-aws-s3-rm',
+    family: 'aws',
+    message:
+      'aws s3 rm/rb deletes objects or buckets. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-pm2-kill',
+    family: 'svcman',
+    message:
+      'pm2 kill/delete/stop/restart affects every managed node service. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-systemctl-stop',
+    family: 'svcman',
+    message:
+      'systemctl stop/kill/mask/disable/isolate affects host services. Do NOT run this automatically \u2014 hand the exact command back to the user.',
+  },
+  {
+    ruleId: 'block-dd-of-dev',
+    family: 'dd',
+    message:
+      'dd writing to a raw block device (of=/dev/*) can destroy disks beyond recovery. Do NOT run this automatically.',
+  },
 ];
 
-/** gcloud/bq produce sprintf messages — family inferred from program. */
-export function inferFamilyFromProgram(program: string): 'gcloud' | 'bq' | 'custom' {
+/** gcloud/bq produce sprintf messages — family inferred from program.
+ *  tmux/pkill/killall rules share identical reason text (the four session-kill
+ *  rules), so their family is also inferred from the program to disambiguate
+ *  the message-keyed registry. */
+export function inferFamilyFromProgram(program: string): RuleFamily {
   switch (program) {
     case 'gcloud':
       return 'gcloud';
     case 'bq':
       return 'bq';
+    case 'tmux':
+      return 'tmux';
+    case 'pkill':
+      return 'pkill';
+    case 'killall':
+      return 'killall';
+    case 'herdr':
+      return 'herdr';
+    case 'pulumi':
+      return 'pulumi';
+    case 'docker-compose':
+      return 'docker';
+    case 'find':
+      return 'find';
+    case 'grep':
+      return 'grep';
+    case 'du':
+    case 'rg':
+    case 'fd':
+    case 'rgrep':
+    case 'ls':
+      return 'scan';
     default:
       return 'custom';
   }

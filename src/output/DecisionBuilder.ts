@@ -4,13 +4,23 @@ import type { EngineConfig } from '../config/Config.ts';
 import type { EngineDecision, RawDeny } from '../engine/types.ts';
 import type { ParsedCommand } from '../parser/types.ts';
 import { type RuleMeta, type RuleRegistry, inferFamilyFromProgram } from '../rules/index.ts';
+import type { Signals } from '../signals/types.ts';
+import type { UnlockResult } from '../unlock/types.ts';
+import { PI_OPA_NET_VERSION } from '../version.ts';
 
 /** The schema-compliant decision output (decision-output.v1). */
 export interface DecisionOutput {
   readonly schema_version: '1.0';
   readonly decision: 'allow' | 'deny';
   readonly action: 'allow' | 'block' | 'prompt_user' | 'log_only';
-  readonly source: 'opa' | 'fail-open' | 'fail-closed' | 'cached';
+  readonly source:
+    | 'opa'
+    | 'fail-open'
+    | 'fail-closed'
+    | 'cached'
+    | 'opa-unlocked'
+    | 'fail-open-keyless'
+    | 'unlock-filter-error';
   readonly reasons: readonly Reason[];
   readonly input: EvaluatedInput;
   readonly summary: string;
@@ -19,6 +29,8 @@ export interface DecisionOutput {
   readonly evaluated_at: string;
   readonly decision_id: string;
   readonly duration_ms: number;
+  /** Optional collected signals (provenance) — added by context/signals feature. */
+  readonly signals?: Readonly<Record<string, unknown>>;
 }
 
 export interface Reason {
@@ -26,6 +38,11 @@ export interface Reason {
   readonly message: string;
   readonly family: string;
   readonly severity: 'block' | 'warn' | 'info';
+  readonly bypassed?: boolean;
+  readonly unlock_key_id?: string;
+  readonly unlock_key_type?: 'll' | 'ttl';
+  readonly unlock_expires_at?: string;
+  readonly unlock_status?: 'valid' | 'expired';
 }
 
 export interface EvaluatedInput {
@@ -43,6 +60,11 @@ export interface DecisionMetadata {
   readonly policy_path: string;
   readonly hostname: string;
   readonly session_id: string;
+  readonly unlock_count?: number;
+  readonly unlock_blocked_count?: number;
+  readonly unlock_agent?: string;
+  readonly pi_opa_net_version?: string;
+  readonly dry_run?: boolean;
 }
 
 export interface DecisionBuilderDeps {
@@ -70,15 +92,55 @@ export class DecisionBuilder {
     this.deps = deps;
   }
 
-  build(parsed: ParsedCommand, engine: EngineDecision): DecisionOutput {
-    const reasons = engine.decision === 'deny' ? this.buildReasons(engine.reasons, parsed) : [];
+  build(
+    parsed: ParsedCommand,
+    engine: EngineDecision,
+    opts?: { unlockResult?: UnlockResult; signals?: Signals },
+  ): DecisionOutput {
+    const unlockResult = opts?.unlockResult;
+    const reasons =
+      engine.decision === 'deny' ? this.buildReasons(engine.reasons, parsed, unlockResult) : [];
     const suggestions = this.collectSuggestions(reasons);
-    const action = engine.decision === 'allow' ? 'allow' : 'block';
+
+    // Determine source and decision based on unlock result.
+    let source: DecisionOutput['source'] = engine.source;
+    let decision = engine.decision;
+    if (unlockResult && unlockResult.bypassedCount > 0 && unlockResult.blockedCount === 0) {
+      source = 'opa-unlocked';
+      decision = 'allow';
+    }
+
+    const action = decision === 'allow' ? 'allow' : 'block';
+
+    // Build metadata with optional unlock fields.
+    const metadata: DecisionMetadata = {
+      engine: 'opa',
+      opa_version: engine.opaVersion,
+      rulebook_digest: this.deps.digest,
+      policy_path: this.deps.config.policyPath,
+      hostname: this.deps.config.hostname ?? osHostname(),
+      session_id: this.deps.config.sessionId ?? '',
+      pi_opa_net_version: PI_OPA_NET_VERSION,
+    };
+    // Dry-run mode: PIOPANET_DRY_RUN=1 adds a marker to the metadata.
+    // This ensures tests and CI can verify the CLI is in evaluation-only mode.
+    if (process.env.PIOPANET_DRY_RUN === '1') {
+      (metadata as unknown as Record<string, unknown>).dry_run = true;
+    }
+    if (unlockResult) {
+      const meta = metadata as unknown as Record<string, unknown>;
+      meta.unlock_count = unlockResult.bypassedCount;
+      meta.unlock_blocked_count = unlockResult.blockedCount;
+      if (this.deps.config.unlockAgentId) {
+        meta.unlock_agent = this.deps.config.unlockAgentId;
+      }
+    }
+
     return {
       schema_version: '1.0',
-      decision: engine.decision,
+      decision,
       action,
-      source: engine.source,
+      source,
       reasons,
       input: {
         raw: parsed.raw,
@@ -89,29 +151,51 @@ export class DecisionBuilder {
       },
       summary: this.summary(engine, parsed, reasons),
       suggestions,
-      metadata: {
-        engine: 'opa',
-        opa_version: engine.opaVersion,
-        rulebook_digest: this.deps.digest,
-        policy_path: this.deps.config.policyPath,
-        hostname: this.deps.config.hostname ?? osHostname(),
-        session_id: this.deps.config.sessionId ?? '',
-      },
+      metadata,
       evaluated_at: (this.deps.now ?? (() => new Date()))().toISOString(),
       decision_id: (this.deps.uuid ?? randomUUID)(),
       duration_ms: engine.durationMs,
+      signals: opts?.signals as Readonly<Record<string, unknown>> | undefined,
     };
   }
 
-  private buildReasons(raw: readonly RawDeny[], parsed: ParsedCommand): Reason[] {
-    return raw.map((d) => {
-      const meta = this.deps.registry.lookup(d);
-      return {
+  private buildReasons(
+    raw: readonly RawDeny[],
+    parsed: ParsedCommand,
+    unlockResult?: UnlockResult,
+  ): Reason[] {
+    return raw.map((d, i) => {
+      const familyHint = inferFamilyFromProgram(parsed.program);
+      const meta = this.deps.registry.lookup(d, familyHint, parsed.args);
+      const reason: Record<string, unknown> = {
         rule_id: meta.ruleId,
         message: meta.message,
         family: this.resolveFamily(meta, parsed),
-        severity: 'block' as const,
+        severity: 'block',
       };
+
+      // Merge unlock info if available.
+      if (unlockResult && i < unlockResult.reasons.length) {
+        const info = unlockResult.reasons[i];
+        if (info.bypassed) {
+          reason.bypassed = true;
+          reason.severity = 'info'; // Demote bypassed reason severity.
+        }
+        const keyId = info.unlockKeyId ?? info.unlock_key_id;
+        if (keyId) reason.unlock_key_id = keyId;
+        const keyType = info.keyType ?? info.unlock_key_type;
+        if (keyType) reason.unlock_key_type = keyType;
+        const exp = info.expiresAt ?? info.unlock_expires_at;
+        if (typeof exp === 'number') {
+          reason.unlock_expires_at = new Date(exp * 1000).toISOString();
+        } else if (typeof exp === 'string') {
+          reason.unlock_expires_at = exp;
+        }
+        const status = info.unlockStatus ?? info.unlock_status;
+        if (status) reason.unlock_status = status;
+      }
+
+      return reason as unknown as Reason;
     });
   }
 

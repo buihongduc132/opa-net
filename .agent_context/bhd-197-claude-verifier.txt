@@ -1,0 +1,119 @@
+Audit complete. Compiling.
+
+## VERDICT: **REJECT**
+
+HEAD confirmed `640d97122874bc9b2227ad589bb9dbfaed6d07c4`. Surface is clean (opa-net only — no coding-guard / guard-orches / beet-orches edits). Fail-open preserved (`policy/safety.rego:33`), `opa check` exit 0, catalog↔rego message parity is bidirectionally machine-enforced and holds, unlock lift + cross-rule isolation work. Those are not the problem. These are:
+
+---
+
+### 1. CRITICAL — `&&`, `||`, `|`, newline compound bypass. Verbatim deny-class command is ALLOWED.
+Requirement: *"Compound bash -c must classify the INNER find/grep, not only bash."* `src/cli/run.ts:139-152` splits on `;` **only**.
+
+```
+$ bun bin/pi-opa-net.js eval 'true && find /home/bhd -name goal.json -mmin -15' --json
+{"decision":"allow","action":"allow","source":"opa","reasons":[],
+ "input":{"raw":"true && find /home/bhd -name goal.json -mmin -15","program":"true",
+ "args":["find","/home/bhd","-name","goal.json","-mmin","-15"],"parse_confidence":"partial"},...}
+EXIT=0
+```
+`source:"opa"` — a genuine policy allow, not the fail-open race. Full matrix (each retried past fail-open):
+
+| command | decision |
+|---|---|
+| `echo hi; find /home/bhd` | deny ✓ |
+| `true && find /home/bhd -name goal.json -mmin -15` | **allow** |
+| `cd /tmp \|\| find /home/bhd` | **allow** |
+| `echo hi \| find /home/bhd` | **allow** |
+| `find /home/bhd` (newline-separated) | **allow** |
+| `cd /tmp && find /home/bhd` | **allow** |
+| `bash -c 'cd /home/bhd && find .'` | **allow** |
+| `sh -c 'true && find /home/bhd'` | **allow** |
+| `true && grep -rl BHD-156 ~/.hermes` | **allow** |
+
+`bash -c 'cd /home/bhd && find .'` is the natural agent idiom and defeats the gate entirely. No test covers any non-`;` separator.
+
+### 2. CRITICAL — `bun test` and `bun run check` FAIL on this HEAD.
+Explicit acceptance criterion. Three independent runs by me:
+
+```
+bun test           →  625 pass, 22 fail   EXIT=1
+bun test (rerun)   →  ~35 fail lines
+bun run check      →  641 pass, 6 fail    CHECK_EXIT=1
+```
+Failure set differs every run. Single-file run is also red:
+```
+$ bun test tests/e2e/block-home-wide-find-grep.test.ts
+ 50 pass  2 fail   EXIT=1
+(fail) find "$HOME" → DENY (quoted $HOME raw token)
+(fail) find-dollar-home: find $HOME → DENY
+```
+
+### 3. HIGH — the gate's deny is nondeterministic; deny-class commands intermittently ALLOW.
+Root cause: 250ms default OPA timeout (`src/config/Config.ts:74`) → fail-open. Measured **3/60 leaks (5%)**:
+```
+$ bun bin/pi-opa-net.js eval 'find "$HOME"' --json     # iteration 45 of 60
+{"decision":"allow","action":"allow","source":"fail-open","reasons":[],
+ "summary":"ALLOWED (fail-open: OPA unreachable for 280ms)",...}
+EXIT=0
+```
+Correction to an in-flight hypothesis of mine: I first suspected the PR's new find/grep signal collection (`src/cli/run.ts:304-311`) caused this. Latency distributions refute that — find p90=376ms vs `git stash pop` p90=387ms. **This is pre-existing infrastructure fragility, not caused by this change.** It still blocks acceptance: "deny-class cmds DENY without unlock" is only ~95% true, and it is what makes criterion #2 unpassable.
+
+### 4. HIGH — `block-home-wide-grep` does not block home-wide grep.
+Rule ID and parent requirement ("Gate home-wide find / **recursive grep**") vs. implementation (`policy/safety.rego`, hermes-only predicates):
+```
+grep -rl BHD-156 ~/.hermes --include=*.db  => deny   block-home-wide-grep
+grep -r  BHD-156 /home/bhd                 => allow
+grep -r  BHD-156 $HOME                     => allow
+grep -r  BHD-156 ~                         => allow
+grep -rn foo /home                         => allow
+```
+The catalog message is honest ("Recursive grep of `~/.hermes`"), so parity passes — but the rule *name* and the ticket promise home-wide coverage that does not exist. Silent scope drop.
+
+### 5. HIGH — path-normalization bypasses of `is_home_root`.
+`regex.match("^/home/[^/]+/?$", p)` is literal-only. All of these walk the identical tree:
+```
+find /home/bhd/.        => allow
+find /home/bhd/..       => allow
+find //home/bhd         => allow
+find /home//bhd         => allow
+find /home/bhd/../bhd   => allow
+```
+
+### 6. MEDIUM — command-prefix evasions (same `find` program, undetected).
+```
+/usr/bin/find /home/bhd  => deny ✓        command find /home/bhd  => allow
+env find /home/bhd       => allow          nice find /home/bhd     => allow
+FOO=1 find /home/bhd     => allow          timeout 60 find /home/bhd => allow
+xargs -I{} find /home/bhd => allow
+```
+`FOO=1 find /home/bhd` parses as `"program":"foo=1"`. Repo already carries a known-failing test for this class (`tests/pi/compound-command-parsing.test.ts:39`, self-labelled "currently ALLOWED — BUG") — the new rule inherits it untested.
+
+### 7. MEDIUM — `zsh -c` / `eval` not unwrapped.
+`src/parser/unwrapShellDashC.ts:26` gates on `bash`/`sh` only.
+```
+bash -c 'bash -c "find /home/bhd"'  => deny ✓
+bash --norc -c 'find /home/bhd'     => deny ✓
+zsh -c 'find /home/bhd'             => allow
+eval 'find /home/bhd'               => allow
+```
+
+### 8. MEDIUM — systemd `wt-reap-idle` non-coverage is not documented where users read.
+Required: *"documented as not covered (not silently claimed)."* The only mention in the entire tracked tree is a test-fixture `notes` string (`tests/fixtures/home-wide-find-grep.json:12`). `git grep -i "wt-reap\|systemd"` returns **zero** hits in README.md, CHANGELOG.md, AGENTS.md, or `skills/pi-opa-net/SKILL.md` — all four of which add the new rules with no coverage caveat.
+
+### 9. LOW — `rg`/`fd`/`ag` defeat the grep rule's stated intent.
+`rg BHD-156 ~/.hermes => allow`. Allowing `rg` in a worktree is a declared decision, but it means the hermes protection is one keystroke away from useless. (`du -sh /home/bhd`, `ls -R /home/bhd`, `tar -cf … /home/bhd` also allow — out of declared scope, noted not charged.)
+
+### 10. LOW — LD-L6 leak: unlock keys enter the OPA *process*.
+Keys are correctly absent from OPA *input* (`grep -rn unlock src/engine/` → no hits). But `PIOPANET_UNLOCK_KEYS` (`src/config/Config.ts:80`) is forwarded to the OPA subprocess via `env: process.env` (`src/engine/OpaCliEngine.ts:82`). "Keys never enter OPA" is true of the input document, not of the process.
+
+---
+
+### What I could NOT verify
+- Whether issues 3 and 6 pre-date this branch in the same form — I did not check out the parent commit (constraint: no file modification, no worktree creation). I inferred pre-existence from cross-family latency parity and the in-repo self-labelled bug test.
+- CI behavior on other hosts; all timing evidence is from `bhd-main2` under my own load.
+- The PR description on GitHub (#13) — not fetched; I audited only the tree at `640d971`.
+
+### Not defective (verified, for the record)
+All 15 declared fixture cases pass when the fail-open race is retried away; `bash -c`/`sh -c` `;`-inner classification works; unlock lifts the deny with `source:"opa-unlocked"`; a grep key does **not** unlock the find rule (`unlock_blocked_count:1`) — LD-L1/LD-L2 hold for these two rules; typecheck and lint are clean (exit 0).
+
+**The change does what its own fixture table declares. It does not do what the ticket requires.** Issues 1, 2, and 4 are each independently disqualifying.

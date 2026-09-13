@@ -39,7 +39,7 @@ Check [`src/rules/catalog.ts`](src/rules/catalog.ts) for the exact message strin
 
 ### `decision: allow` when I expected `deny` with `source: fail-open`
 
-OPA was unreachable within `PI_OPA_TIMEOUT_MS` (default 250ms). Raise the timeout or switch to fail-closed:
+OPA was unreachable within `PI_OPA_TIMEOUT_MS` (default 5000ms). Raise the timeout or switch to fail-closed:
 
 ```bash
 PI_OPA_TIMEOUT_MS=2000 PI_OPA_FAIL_MODE=closed bunx pi-opa-net eval "git stash pop"

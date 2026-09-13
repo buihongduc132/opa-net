@@ -1,0 +1,8 @@
+{
+  "source": "~/.cc-safety-net/rules/user-rules/rulebook.json",
+  "rulebook_version": 1,
+  "name": "user-rules",
+  "version": "1.0.0",
+  "synced_at": "2026-07-14T00:00:00.000Z",
+  "note": "Canonical baseline for cc-safety-net → OPA parity. Synced by copying the active user-scope rulebook verbatim (no edits). Re-sync procedure documented in openspec/changes/port-cc-safety-net-rules-to-opa/tasks.md."
+}

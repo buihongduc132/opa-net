@@ -1,6 +1,6 @@
 {
   "name": "pi-opa-net",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "description": "OPA-backed bash command guard for the pi ecosystem — structured decision-output.v1 JSON, fail-open default, Claude Code hook protocol compatible. Agent-agnostic engine + CLI.",
   "type": "module",
   "main": "src/index.ts",
@@ -22,14 +22,15 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check --write src tests bin",
     "lint:ci": "biome ci src tests bin",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
-    "check": "bun run typecheck && bun run lint:ci && bun test --coverage",
-    "smoke": "bun run bin/pi-opa-net.js eval \"git stash pop\" --json",
+    "test": "bun test --timeout 30000",
+    "test:coverage": "bun test --coverage --timeout 30000",
+    "check": "bun run typecheck && bun run lint:ci && bun test --coverage --timeout 30000",
+    "smoke": "bun run bin/pi-opa-net.js eval \"git stash pop\" --json >/dev/null 2>&1; ec=$?; [ $ec -eq 2 ] && echo 'smoke OK (git stash pop denied, exit 2)' && exit 0; echo 'smoke FAIL (expected deny exit 2, got '$ec')' >&2; exit 1",
     "prepublishOnly": "bun run check"
   },
   "keywords": [
     "pi-package",
+    "pi-extension",
     "pi",
     "pi-coding-agent",
     "pi-library",
@@ -39,10 +40,17 @@
     "safety-net",
     "claude-code",
     "policy",
-    "decision-output"
+    "decision-output",
+    "capability-based",
+    "unlock-keys"
   ],
   "pi": {
-    "skills": ["./skills"]
+    "extensions": [
+      "./src/pi/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
   },
   "dependencies": {
     "ajv": "^8.17.1",

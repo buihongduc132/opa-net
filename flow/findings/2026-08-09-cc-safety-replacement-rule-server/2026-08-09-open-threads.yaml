@@ -1,0 +1,249 @@
+# Open threads — 2026-08-09 cc-safety-replacement-rule-server explore
+status: ongoing
+
+threads:
+  - id: OT1
+    topic: pi-bash-guard regex leak — git commit -m x --no-verify passes
+    raised_in: turn1
+    status: open
+    severity: 3
+    note: |
+      Active guard's DEFAULT git-interactive regex exempts -m/-F/--message/--file/--no-edit,
+      so `git commit --no-verify -m x` / `git commit -n -m x` PASS. Rego rule
+      block-git-commit-no-verify covers these but is not wired into the live bash path.
+      Quick fix option B (new pi-bash-guard group) vs proper fix (wire opa-net in, option A).
+
+  - id: OT2
+    topic: canonical source of truth — three diverging copies
+    raised_in: turn4
+    status: open
+    severity: 5
+    note: |
+      ./pi-opa-net v0.1.0 (33 rules), ../opa-net v0.5.0 (46 rules), npm deployed v0.6.0
+      (51 rules, includes unpublished ghost-deploy features). Must pick canonical before
+      any implementation work or drift compounds. Options (a) ../opa-net canonical
+      (b) reverse npm ghost into ../opa-net as v0.7.0 (c) merge. Includes deciding fate
+      of stale local ./pi-opa-net. Turn 8 work list item #1.
+
+  - id: OT3
+    topic: live gating verification — does deployed v0.6.0 adapter actually intercept?
+    raised_in: turn4
+    status: open
+    severity: 5
+    note: |
+      Extension deployed + adapter present, but turn-1 bug (--no-verify not gated) suggests
+      subprocess eval may fail silently, pi-bash-guard may shadow it, or hook not loading.
+      Instrument BEFORE any other work — else implementing against a client that ignores rules.
+      Turn 8 work list item #6.
+
+  - id: OT4
+    topic: repo-level LD2 amendment (local-only topology vs remote rules)
+    raised_in: turn4
+    status: resolved
+    resolution: >
+      Turn 8: trivial — still "local files", Ansible is just a delivery truck. Arguably no
+      LD2 violation at all. No formal amendment strictly required.
+    resolved_in: turn8
+
+  - id: OT5
+    topic: server scope — read-only rules blob vs full control plane
+    raised_in: turn4
+    status: resolved
+    resolution: >
+      Turn 8: no runtime server. "Server" = rules directory + Ansible. Full control plane
+      (unlock-key API, audit ingest) dead — revisit only if fleet grows.
+    resolved_in: turn8
+
+  - id: OT6
+    topic: cc-safety-net retirement / cutover
+    raised_in: turn4
+    status: open
+    severity: 2
+    note: |
+      ~/.cc-safety-net/ inert stub + 38-rule rulebook.json still maintained. No migration/
+      cutover story executed. Fold per repo OT4 resolution ("pi-safety-net's rules fold INTO
+      this repo's rego policy") then archive. Turn 8 work list item #7.
+
+  - id: OT7
+    topic: server home — new repo vs in-package bin vs noco-mesh
+    raised_in: turn5
+    status: resolved
+    resolution: >
+      Turn 8: ~/.opa-net, Ansible-managed. No daemon, no repo, no noco-mesh service.
+    resolved_in: turn8
+
+  - id: OT8
+    topic: RuleSource seam design (file | http | bundle)
+    raised_in: turn5
+    status: resolved
+    resolution: >
+      Turn 8: dead — no fetch/cache/sync logic. File load from ~/.opa-net via existing
+      PIOPANET_HOME discovery.
+    resolved_in: turn8
+
+  - id: OT9
+    topic: S4 portability tradeoff — subprocess opa vs in-process common
+    raised_in: turn7
+    status: open
+    note: |
+      Turn 7 S4: fallback client = subprocess `opa eval -d cached.rego` (portable, any language)
+      vs in-process common eval (TS-only). Turn 8 minimal stack uses local opa binary
+      (subprocess) — the portability question only resurfaces if non-TS clients need
+      in-process eval. Default: subprocess = portable. Deferred until first non-TS client.
+
+# ── Below: from gotcha-coverage step 20 (2026-08-16, 3 reviewer batches) ──
+# Appendices: turn8a (architecture), turn4a (gating+parity), turn9a (unlock-keys)
+
+  - id: OT10
+    topic: RANK 5 — dual-guard hook shadowing voids parity claim
+    raised_in: turn4a-gotcha
+    status: open
+    severity: 5
+    source: gotcha-coverage
+    note: |
+      Both pi-bash-guard and pi-opa-net register tool_call hooks. If pi-bash-guard fires
+      first and passes (e.g. `git commit --no-verify -m x` leak), pi-opa-net's 51 rules are
+      bypassed → LD-S1 parity claim VOID. Explains OT3 symptom fully. Must verify pi hook
+      execution order (serial vs first-block-wins), then disable/deprioritize pi-bash-guard
+      for gated domains. Telemetry to detect shadowing in production.
+
+  - id: OT11
+    topic: rule/client version skew → silent under-deny (rego undefined)
+    raised_in: turn8a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      Rules deployed via Ansible, clients via npm — independently versioned, no input-schema
+      contract. Old client + new rules: missing input field in rego = undefined → rule
+      doesn't fire → ALLOW, no error. Worse than crash. Also: no version handshake between
+      extension and bin (wrong exit codes/JSON schema silently misclassified). Mitigation:
+      min-client-version in version file; input_schema_v smoke rule; version+exit-code
+      contract check.
+
+  - id: OT12
+    topic: threat model undefined — client-side guard bypassable by guarded agent
+    raised_in: turn8a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      Agent with bash can rm the rego, point PIOPANET_HOME at empty dir, PATH-shadow an opa
+      shim, or edit rego to allow-all. No daemon = no out-of-reach authority. Guard is
+      advisory (accident-prevention only). MUST state threat model explicitly in spec; if
+      tamper-resistance needed: root-owned ~/.opa-net + signed digest verification.
+
+  - id: OT13
+    topic: salt = de-facto god-key; guarded agent can mint keys
+    raised_in: turn9a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      Possession of salt file mints valid keys for EVERY rule (unlock-key CLI has no gate).
+      Injected command can mint then re-run denied command. LD-L2 "no god-key" holds for
+      format, not material. Under trusted-fleet assumption = acceptable; MUST document
+      "salt = root of all keys" + unlock-keys ≠ injection defense. Optionally salt unreadable
+      by agent shell (sudo-issued).
+
+  - id: OT14
+    topic: salt-path drift — code default ~/.pi-opa-net/salt vs architecture ~/.opa-net/salt
+    raised_in: turn9a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      SaltResolver default = ~/.pi-opa-net/salt; LD-S5/S6 deploy to ~/.opa-net/salt.
+      Resolver silently auto-generates divergent salt on mismatch → all fleet-issued keys
+      wrong-salt → denies stand, zero error surfaced. "Zero new code" claim FALSE — salt
+      path needs config/code change + loud auto-gen warning + Ansible assert.
+
+  - id: OT15
+    topic: deploy/discovery correctness — path mismatch, empty-dir, atomicity, -d dir semantics, opa pin
+    raised_in: turn4a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      Cluster: (1) PIOPANET_HOME discovery checks <agentDir>/pi-opa-net/rules, Ansible writes
+      ~/.opa-net → silent fallback to bundled rules. (2) existsSync checks dir not .rego
+      contents → empty deploy = silent fail-open. (3) file-by-file deploy races readers →
+      releases/<ver>/ + symlink flip. (4) opa eval -d <dir> loads EVERY .rego incl. strays →
+      fleet fail-mode; use single file/manifest. (5) opa version unpinned → compile drift.
+
+  - id: OT16
+    topic: subprocess robustness — no timeout, bun-only spawn, audit races
+    raised_in: turn4a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      spawn lacks timeout → hung eval freezes agent (worse than fail-open). spawn('bun')
+      hardcoded → Node-only environments silently skip gating. Audit write not awaited →
+      loses records. Mitigation: 5-10s kill timer, runtime detection (bun/node), await or
+      documented fire-and-forget, per-call perf budget (opa eval recompiles ~100-500ms;
+      precompiled bundle cuts it).
+
+  - id: OT17
+    topic: parser is the real TS lock — non-TS clients cannot share rules parity
+    raised_in: turn8a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      OT9 addressed EVAL portability; but PARSER (AST+regex → input JSON) is TS-only in
+      common/. Hermes/zcode non-TS runtimes must reimplement → same command parses
+      differently → different deny set. Options: move matching logic INTO rego (input = raw
+      string), or language-neutral parser spec + conformance vectors all clients must pass.
+
+  - id: OT18
+    topic: parity governance — cc-safety-net still maintained + implicit-subcommand migration audit
+    raised_in: turn4a-gotcha
+    status: open
+    severity: 4
+    source: gotcha-coverage
+    note: |
+      "Still maintained" rulebook can drift from rego (no sync). Also: JSON→Rego port loses
+      implicit-subcommand semantics (bare `git stash` ≡ push) unless manually added — ported
+      rules may be WEAKER than intended. Declare opa-net new source of truth + freeze
+      rulebook + audit all ported rules for implicit defaults + test cases for bare commands.
+
+  - id: OT19
+    topic: per-client rule scoping + shared config surface undefined
+    raised_in: turn8a-gotcha
+    status: open
+    severity: 3
+    source: gotcha-coverage
+    note: |
+      One deny set for pi/hermes/zcode → pi-specific rules mis-fire on others. Config
+      (allowedBranches, worktreeAllowedDirs) is pi-shaped via Config.ts. Mitigation:
+      input.client + applicable_clients guard in rego; client-agnostic config schema inside
+      ~/.opa-net manifest.
+
+  - id: OT20
+    topic: unlock UX/safety gaps — ENV session-lifetime, salt mode stderr-only, fleet revocation best-effort, fail-open-keyless ignores keys silently
+    raised_in: turn9a-gotcha
+    status: open
+    severity: 3
+    source: gotcha-coverage
+    note: |
+      ENV keys persist whole session (scope creep). Salt mode warning → stderr only,
+      invisible in agent contexts (Ansible copy defaults 0644). Revocation only reaches
+      hosts Ansible touches (clones/unmanaged auto-gen divergent salts). OPA-down + keys
+      present → fail-open-keyless, keys silently ignored (user thinks unlock worked).
+      Mitigations: TTL-only via ENV, hard-fail bad mode, salt epoch/max-age check, warn on
+      fail-open-keyless.
+
+  - id: OT21
+    topic: misc moderate — compound-split quoting, tool adapter registry, non-git signals, self-check wiring, digest archive
+    raised_in: turn4a-gotcha
+    status: open
+    severity: 3
+    source: gotcha-coverage
+    note: |
+      (1) raw.split(';') breaks quoted semicolons — use ShellQuote for unquoted-only split.
+      (2) PI_SHELL_TOOL_ADAPTERS hardcodes bash/Shell — future tools bypass; make registry
+      extensible. (3) signals collected only for git — non-git rules get undefined signals.
+      (4) runSelfCheck() exported never called — wire at load or CLI. (5) decisions carry
+      digest but no rulebook archive → pre-reconciliation audit unverifiable; archive rulesets
+      before OT2 merge (ties OT2).

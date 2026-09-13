@@ -1,5 +1,7 @@
 import { parse as shellQuoteParse } from 'shell-quote';
+import { stripWithMeta } from './stripGitGlobalOptions.ts';
 import type { CommandParser, ParsedCommand } from './types.ts';
+import { unwrapWrapperTokens } from './unwrapWrapperProgram.ts';
 
 /**
  * Programs that use a `[program, subcommand, args...]` shape.
@@ -8,7 +10,19 @@ import type { CommandParser, ParsedCommand } from './types.ts';
  * rego policy queries each family (git/docker/gh/glab check subcommand;
  * rm/bd/gcloud/bq check args).
  */
-const SUBCOMMAND_PROGRAMS = new Set(['git', 'docker', 'gh', 'glab']);
+const SUBCOMMAND_PROGRAMS = new Set([
+  'git',
+  'docker',
+  'gh',
+  'glab',
+  'pulumi',
+  'terraform',
+  'tofu',
+  'terragrunt',
+  'nomad',
+  'consul',
+  'vault',
+]);
 
 /**
  * AST-based parser using shell-quote [OT1 resolution: primary path].
@@ -48,18 +62,43 @@ export class ShellQuoteParser implements CommandParser {
 
 /** Apply program-aware subcommand classification. */
 function classify(strings: string[], raw: string, hasMeta: boolean): ParsedCommand {
-  const [programRaw, ...rest] = strings;
+  // Gotcha wrapper-unwrap: `sudo du -sh /` must classify as `du` — a wrapper
+  // prefix otherwise defeats every program_base-keyed rule (GROUP K/L etc.).
+  // input.raw keeps the FULL original (wrapper included) for raw-token rules.
+  const [programRaw, ...rest] = unwrapWrapperTokens(strings);
   const program = programRaw.toLowerCase();
   const confidence = hasMeta ? 'partial' : 'full';
 
+  // LD8: Strip git global options BEFORE subcommand classification.
+  // Without this, `git -C /evil worktree add foo` → subcommand="" (all rules defeated).
+  // Also capture -C <path> for cwd propagation to signal collection.
+  let effectiveRest = rest;
+  let gitCwd: string | undefined;
+  if (program === 'git') {
+    const stripped = stripWithMeta(rest);
+    effectiveRest = stripped.args;
+    gitCwd = stripped.cPath;
+  }
+
   // Subcommand-style programs: tokens[1] is the subcommand (unless it's a flag).
-  if (SUBCOMMAND_PROGRAMS.has(program) && rest.length > 0 && !rest[0].startsWith('-')) {
-    const [sub, ...args] = rest;
-    return { raw, program, subcommand: sub.toLowerCase(), args, parseConfidence: confidence };
+  if (
+    SUBCOMMAND_PROGRAMS.has(program) &&
+    effectiveRest.length > 0 &&
+    !effectiveRest[0].startsWith('-')
+  ) {
+    const [sub, ...args] = effectiveRest;
+    return {
+      raw,
+      program,
+      subcommand: sub.toLowerCase(),
+      args,
+      parseConfidence: confidence,
+      gitCwd,
+    };
   }
 
   // Non-subcommand programs: everything after program is an arg.
-  return { raw, program, subcommand: '', args: rest, parseConfidence: confidence };
+  return { raw, program, subcommand: '', args: effectiveRest, parseConfidence: confidence, gitCwd };
 }
 
 /** shell-quote emits objects ({op, ...}) for redirects/pipelines/subshells. */

@@ -867,6 +867,473 @@ deny[msg] if {
 }
 
 # ──────────────────────────────────────────────────────────────────
+# GROUP K — home-wide find / recursive hermes grep (BHD-165 / BHD-203)
+# Deny class: home-WIDE prefix ($HOME/**, /home/<user>/**, ~/**) plus
+#             recursive grep of ~/.hermes (incl. *.db).
+# Allow class: cwd/repo scoped walks, known goal dirs, maxdepth<=2 under
+#              <repo>/.worktrees. Fail-open (default allow := true) stays.
+# Parser caveat: shell-quote expands `$HOME` to empty arg (same as rm -rf
+# $HOME) so we match BOTH args and input.raw. maxdepth/-name/-mmin/-newermt
+# do NOT exempt a home prefix. maxdepth<=2 is a REAL gate on .worktrees.
+# ──────────────────────────────────────────────────────────────────
+
+# Basename of input.program so /usr/bin/find matches "find".
+program_base := parts[count(parts) - 1] if {
+    parts := split(input.program, "/")
+    count(parts) > 0
+}
+
+# Home directory from TS-side env signal (os.homedir). Undefined if unavailable.
+home_dir := h if {
+    h := object.get(object.get(object.get(input, "signals", {}), "env", {}), "home", "")
+    is_string(h)
+    h != ""
+}
+
+# Process cwd from TS-side env signal (repo/cwd allow-class).
+eval_cwd := c if {
+    c := object.get(object.get(object.get(input, "signals", {}), "env", {}), "cwd", "")
+    is_string(c)
+    c != ""
+}
+
+# Non-flag find path arguments (find roots).
+find_path_args(args) := [t | some t in args; not startswith(t, "-")]
+
+# Numeric -maxdepth N from args. Undefined when the flag is absent.
+find_maxdepth := to_number(input.args[i + 1]) if {
+    some i
+    input.args[i] == "-maxdepth"
+    count(input.args) > i + 1
+}
+
+# Path is under $HOME / /home/<user> / ~  (PREFIX, not exact root).
+# Trailing slash, $HOME, ${HOME}, /home, /home/<user>/… all match.
+is_home_prefix(p) if { p == "~" }
+is_home_prefix(p) if { startswith(p, "~/") }
+is_home_prefix(p) if { p == "$HOME" }
+is_home_prefix(p) if { p == "${HOME}" }
+is_home_prefix(p) if { startswith(p, "$HOME/") }
+is_home_prefix(p) if { startswith(p, "${HOME}/") }
+is_home_prefix(p) if { p == "/home" }
+is_home_prefix(p) if { p == "/home/" }
+is_home_prefix(p) if { regex.match("^/home/[^/]+(/.*)?$", p) }
+is_home_prefix(p) if {
+    home_dir != ""
+    p == home_dir
+}
+is_home_prefix(p) if {
+    home_dir != ""
+    startswith(p, sprintf("%s/", [home_dir]))
+}
+
+# Known goal-dir prefixes that MUST stay allowed without a key.
+# Every spelling requires a path boundary (`/` or end) so a sibling like
+# `~/.pi/goals-evil` is NOT exempted (cubic P1 on safety.rego:931).
+known_goal_prefix(p) if { p == "~/.pi/goals" }
+known_goal_prefix(p) if { startswith(p, "~/.pi/goals/") }
+known_goal_prefix(p) if { p == "~/.verifier-loop/goals" }
+known_goal_prefix(p) if { startswith(p, "~/.verifier-loop/goals/") }
+known_goal_prefix(p) if { regex.match("^/home/[^/]+/\\.pi/goals(/|$)", p) }
+known_goal_prefix(p) if { regex.match("^/home/[^/]+/\\.verifier-loop/goals(/|$)", p) }
+known_goal_prefix(p) if { regex.match("\\$HOME/\\.pi/goals(/|$)", p) }
+known_goal_prefix(p) if { regex.match("\\$HOME/\\.verifier-loop/goals(/|$)", p) }
+known_goal_prefix(p) if {
+    home_dir != ""
+    p == sprintf("%s/.pi/goals", [home_dir])
+}
+known_goal_prefix(p) if {
+    home_dir != ""
+    startswith(p, sprintf("%s/.pi/goals/", [home_dir]))
+}
+known_goal_prefix(p) if {
+    home_dir != ""
+    p == sprintf("%s/.verifier-loop/goals", [home_dir])
+}
+known_goal_prefix(p) if {
+    home_dir != ""
+    startswith(p, sprintf("%s/.verifier-loop/goals/", [home_dir]))
+}
+
+# A `..` segment escapes the goal dir (`~/.pi/goals/../../.ssh`) — reject it
+# so the goal-dir allowlist cannot be used to traverse out (cubic P1:937).
+has_dotdot_segment(p) if { regex.match("(^|/)\\.\\.(/|$)", p) }
+
+# The allow-class exemption: a known-goal prefix WITHOUT any `..` segment.
+is_known_goal_dir(p) if {
+    known_goal_prefix(p)
+    not has_dotdot_segment(p)
+}
+
+# Empty path args (shell-quote expanded `$HOME` → "") are NOT allow-class.
+# Relative names (beet-orches) stay allowed.
+is_cwd_or_relative(p) if { p == "." }
+is_cwd_or_relative(p) if { p == "./" }
+is_cwd_or_relative(p) if { startswith(p, "./") }
+is_cwd_or_relative(p) if {
+    p != ""
+    not startswith(p, "/")
+    not startswith(p, "~")
+    not startswith(p, "$")
+}
+
+# Path is under the eval cwd (absolute repo path even when the repo lives
+# under $HOME — `find <repo>` is the allow class).
+is_under_eval_cwd(p) if {
+    eval_cwd != ""
+    p == eval_cwd
+}
+is_under_eval_cwd(p) if {
+    eval_cwd != ""
+    startswith(p, sprintf("%s/", [eval_cwd]))
+}
+
+# .worktrees prefix (repo-relative or absolute under cwd).
+# The unscoped `/.worktrees` match was removed — a `.worktrees` anywhere on disk
+# must NOT read as the allowlisted worktree tree (cubic P1 on safety.rego:974).
+is_worktrees_path(p) if { p == ".worktrees" }
+is_worktrees_path(p) if { startswith(p, ".worktrees/") }
+is_worktrees_path(p) if { p == "./.worktrees" }
+is_worktrees_path(p) if { startswith(p, "./.worktrees/") }
+is_worktrees_path(p) if {
+    eval_cwd != ""
+    p == sprintf("%s/.worktrees", [eval_cwd])
+}
+is_worktrees_path(p) if {
+    eval_cwd != ""
+    startswith(p, sprintf("%s/.worktrees/", [eval_cwd]))
+}
+
+# maxdepth<=2 under .worktrees is the named allow-class exception.
+# Missing -maxdepth, or N > 2, is a deny (the gate is real, not docs).
+worktrees_maxdepth_ok if {
+    find_maxdepth <= 2
+    find_maxdepth >= 0
+}
+
+# Empty path args (shell-quote expanded `$HOME` → "") are the deny class.
+find_path_is_denied(p) if { p == "" }
+
+# A find path is denied when it is home-wide AND not in the allow class.
+find_path_is_denied(p) if {
+    is_home_prefix(p)
+    not is_known_goal_dir(p)
+    not is_under_eval_cwd(p)
+    not is_worktrees_path(p)
+}
+
+# .worktrees walks: deny unless -maxdepth is present AND <= 2.
+find_path_is_denied(p) if {
+    is_worktrees_path(p)
+    not worktrees_maxdepth_ok
+}
+
+# Raw-token fallback: `$HOME` / `"$HOME"` vanish from args (shell-quote
+# expands them to empty). Same pattern as rm_raw_dangerous_token.
+# Also matches `$HOME/…` / `~/…` prefix spellings (BHD-202 subtree cases).
+find_raw_home_token(raw) if { regex.match("(^|\\s)\\$HOME(/|\\s|$)", raw) }
+find_raw_home_token(raw) if { regex.match("(^|\\s)\"\\$HOME\"(/|\\s|$)", raw) }
+find_raw_home_token(raw) if { regex.match("(^|\\s)'\\$HOME'(/|\\s|$)", raw) }
+find_raw_home_token(raw) if { regex.match("(^|\\s)~(/|\\s|$)", raw) }
+
+# Raw-based deny: $HOME / ~ token present; args lost the expansion.
+# Exempt known goal dirs. Exempt `$HOME/<repo>` is handled via args + cwd.
+# Every goal spelling requires a path boundary so a sibling scan like
+# `find ~/.pi/goals-evil` is NOT exempted (cubic P1 on safety.rego:934).
+find_raw_known_goal(raw) if { regex.match("\\$HOME/\\.pi/goals(/|$)", raw) }
+find_raw_known_goal(raw) if { regex.match("\\$HOME/\\.verifier-loop/goals(/|$)", raw) }
+find_raw_known_goal(raw) if { regex.match("~/.pi/goals(/|$)", raw) }
+find_raw_known_goal(raw) if { regex.match("~/.verifier-loop/goals(/|$)", raw) }
+
+# Args-based deny: any find path is a home-wide prefix outside the allow class.
+deny[msg] if {
+    program_base == "find"
+    some p in find_path_args(input.args)
+    find_path_is_denied(p)
+    msg := "Home-wide find ($HOME/**, /home/<user>/**, ~/**) is blocked. Scope to cwd, a repo, or a known goal dir. .worktrees walks require -maxdepth 2. Unlock with block-home-wide-find."
+}
+
+deny[msg] if {
+    program_base == "find"
+    find_raw_home_token(input.raw)
+    not find_raw_known_goal(input.raw)
+    # If args still carry a path, let the args rule decide (cwd/repo allow).
+    # Fire raw-token deny only when no surviving path arg is allow-class.
+    not find_has_allow_class_path
+    msg := "Home-wide find ($HOME/**, /home/<user>/**, ~/**) is blocked. Scope to cwd, a repo, or a known goal dir. .worktrees walks require -maxdepth 2. Unlock with block-home-wide-find."
+}
+
+# True when at least one find path is known-goal / cwd / repo (so a raw
+# `$HOME` token that also appears inside an allowed path does not deny).
+find_has_allow_class_path if {
+    some p in find_path_args(input.args)
+    is_known_goal_dir(p)
+}
+find_has_allow_class_path if {
+    some p in find_path_args(input.args)
+    is_under_eval_cwd(p)
+    not is_worktrees_path(p)
+}
+find_has_allow_class_path if {
+    some p in find_path_args(input.args)
+    is_worktrees_path(p)
+    worktrees_maxdepth_ok
+}
+find_has_allow_class_path if {
+    some p in find_path_args(input.args)
+    is_cwd_or_relative(p)
+    not is_worktrees_path(p)
+    not is_home_prefix(p)
+}
+
+# Recursive grep flag: -r / -R / --recursive / combined short cluster
+# containing r/R (e.g. -rl, -ri). Same cluster pattern as rm_has_recursive.
+grep_is_recursive(args) if { has_any_arg(args, ["-r", "-R", "--recursive"]) }
+grep_is_recursive(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "r")
+}
+grep_is_recursive(args) if {
+    some a in args
+    startswith(a, "-")
+    not startswith(a, "--")
+    count(a) > 2
+    contains(a, "R")
+}
+
+# Path looks like ~/.hermes (tilde, expanded, or /home/<user>/.hermes).
+is_hermes_path(p) if { startswith(p, "~/.hermes") }
+is_hermes_path(p) if { regex.match("^/home/[^/]+/\\.hermes", p) }
+is_hermes_path(p) if {
+    home_dir != ""
+    startswith(p, sprintf("%s/.hermes", [home_dir]))
+}
+
+# Raw fallback for hermes path (when glob meta drops --include=*.db but
+# the ~/.hermes token still sits in raw).
+grep_raw_hermes(raw) if { regex.match("~/?\\.hermes", raw) }
+grep_raw_hermes(raw) if { regex.match("/home/[^/ ]+/\\.hermes", raw) }
+grep_raw_hermes(raw) if {
+    home_dir != ""
+    contains(raw, sprintf("%s/.hermes", [home_dir]))
+}
+
+deny[msg] if {
+    program_base == "grep"
+    grep_is_recursive(input.args)
+    some p in input.args
+    is_hermes_path(p)
+    msg := "Recursive grep of ~/.hermes (including *.db) is blocked. Scope to cwd or a file. Unlock with block-home-wide-grep."
+}
+
+deny[msg] if {
+    program_base == "grep"
+    grep_is_recursive(input.args)
+    grep_raw_hermes(input.raw)
+    msg := "Recursive grep of ~/.hermes (including *.db) is blocked. Scope to cwd or a file. Unlock with block-home-wide-grep."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# GROUP L — shallow heavy scan (ban-shallow-heavy-scan / BHD-209)
+# Deny class: heavy recursive scan program targeting a shallow path
+#             (depth <= 2: / , /x , /x/y , ~ , ~/ , $HOME , "" from
+#             $HOME expansion). Depth >= 3 allowed (LD4: du at depth
+#             3). eza exempt ONLY when bounded by -L/--level (LD2
+#             discovery step). Reuse GROUP K allow class (known-goal,
+#             under eval_cwd, cwd-relative).
+# ──────────────────────────────────────────────────────────────────
+
+# Always-heavy scan programs — recursive by default, no flag gate
+# (rg/fd/rgrep are recursive-by-default; gotcha G5.2). fsck/baobab from
+# the turn-2 LD3 enumeration (full-device / full-tree scanners present
+# on this machine: /usr/sbin/fsck, /usr/bin/baobab).
+scan_programs := {"find", "du", "rg", "fd", "rgrep", "fsck", "baobab"}
+
+# GROUP K already denies home-WIDE find. For find, defer home-prefix
+# shallow paths to GROUP K so the agent sees ONE rule, not two (G4.8).
+# grep/egrep are NOT deferred — GROUP K grep only gates ~/.hermes.
+groupk_programs := {"find"}
+
+# ls is heavy only with -R/--recursive.
+ls_recursive(args) if { has_any_arg(args, ["-R", "--recursive"]) }
+
+# eza recurses via -T/-R/--tree/--recurse; bounded ONLY by -L/--level
+# with N <= 2 (gotcha eza-level-gate: `-L 99` is unbounded in practice,
+# the exemption is real only when the level is a discovery bound).
+eza_tree_flag(args) if { has_any_arg(args, ["-T", "--tree", "-R", "--recurse"]) }
+
+eza_level_eq(args) := {n |
+    some a in args
+    startswith(a, "--level=")
+    s := trim_prefix(a, "--level=")
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+eza_level_attached(args) := {n |
+    some a in args
+    regex.match("^-L=?[0-9]+$", a)
+    s := trim_prefix(trim_prefix(a, "-L"), "=")
+    n := to_number(s)
+}
+eza_level_separated(args) := {n |
+    some i
+    args[i] in {"-L", "--level"}
+    count(args) > i + 1
+    s := args[i + 1]
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+
+eza_level_bounded(args) if {
+    ns := eza_level_eq(args) | eza_level_attached(args) | eza_level_separated(args)
+    count(ns) > 0
+    max(ns) <= 2
+}
+
+# A command is a heavy scan when:
+#   - program is always-heavy, OR
+#   - grep/egrep with a recursive flag, OR
+#   - ls with -R/--recursive, OR
+#   - eza with a tree flag and no level bound.
+heavy_scan_program if { scan_programs[program_base] }
+heavy_scan_program if {
+    program_base == "grep"
+    grep_is_recursive(input.args)
+}
+heavy_scan_program if {
+    program_base == "egrep"
+    grep_is_recursive(input.args)
+}
+heavy_scan_program if {
+    program_base == "ls"
+    ls_recursive(input.args)
+}
+heavy_scan_program if {
+    program_base == "eza"
+    eza_tree_flag(input.args)
+    not eza_level_bounded(input.args)
+}
+
+# Path-programs: every non-flag arg is a path (find/du/ls/eza).
+# Pattern-programs: first non-flag arg is the PATTERN (rg/fd/rgrep/
+# grep/egrep) — drop it so pattern text like "/var" isn't a path (G4.6).
+scan_path_programs := {"find", "du", "ls", "eza", "fsck", "baobab"}
+scan_pattern_programs := {"rg", "fd", "rgrep", "grep", "egrep"}
+
+scan_path_args(program) := paths if {
+    scan_path_programs[program]
+    paths := [t | some t in input.args; not startswith(t, "-")]
+}
+scan_path_args(program) := paths if {
+    scan_pattern_programs[program]
+    nonflag := [t | some t in input.args; not startswith(t, "-")]
+    paths := array.slice(nonflag, 1, count(nonflag))
+}
+
+# Depth of an absolute path after normalizing '.' (skip) and '..' (pop).
+# Empty segments (from '//' and trailing '/') dropped by the comprehension.
+# Non-recursive: depth = count(normal segments) - count('..' segments).
+# Correct for absolute paths (no leading '..'); over-blocks on rare
+# leading-'..' spellings (safe direction).
+path_depth(p) := result if {
+    segs := [s | some s in split(p, "/"); s != ""]
+    norm := [s | some s in segs; s != "."; s != ".."]
+    dds := [s | some s in segs; s == ".."]
+    result := count(norm) - count(dds)
+}
+
+# Shallow target: home-root spellings (empty arg from $HOME expansion,
+# ~ , ~/ , $HOME , ${HOME}) OR an absolute path resolving to depth <= 2.
+shallow_target(p) if { p == "" }
+shallow_target(p) if { p == "~" }
+shallow_target(p) if { p == "~/" }
+shallow_target(p) if { p == "$HOME" }
+shallow_target(p) if { p == "${HOME}" }
+shallow_target(p) if {
+    startswith(p, "/")
+    path_depth(p) <= 2
+}
+
+# GROUP K home-wide find deferral (see groupk_programs above).
+groupk_home_deferral(p) if {
+    groupk_programs[program_base]
+    is_home_prefix(p)
+}
+
+# A shallow path is denied unless allow-class or GROUP K defers it.
+shallow_path_is_denied(p) if {
+    shallow_target(p)
+    not is_known_goal_dir(p)
+    not is_under_eval_cwd(p)
+    not is_cwd_or_relative(p)
+    not groupk_home_deferral(p)
+}
+
+# OT7 (resolved 2026-09-13): only DESCENT-PRUNING caps earn the
+# exemption — `find -maxdepth N` and `rg --max-depth N` stop walking
+# deeper than N (genuinely bounded at N <= 2). `du -d N` does NOT prune
+# (du still stats the ENTIRE tree; -d only bounds printing) → du never
+# exempt — the turn-1 incident was exactly `du -xh -d1 /` hanging 300s.
+maxdepth_separated(args, flag) := {n |
+    some i
+    args[i] == flag
+    count(args) > i + 1
+    s := args[i + 1]
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+maxdepth_inline(args, flag) := {n |
+    some a in args
+    startswith(a, sprintf("%s=", [flag]))
+    s := trim_prefix(a, sprintf("%s=", [flag]))
+    regex.match("^[0-9]+$", s)
+    n := to_number(s)
+}
+maxdepth_values(args, flag) := maxdepth_separated(args, flag) | maxdepth_inline(args, flag)
+
+depth_cap_bounded if {
+    program_base == "find"
+    ns := maxdepth_values(input.args, "-maxdepth")
+    count(ns) > 0
+    max(ns) <= 2
+}
+depth_cap_bounded if {
+    program_base == "rg"
+    ns := maxdepth_values(input.args, "--max-depth") | maxdepth_values(input.args, "--maxdepth")
+    count(ns) > 0
+    max(ns) <= 2
+}
+
+# Args-based deny: heavy scan program with a denied shallow path arg.
+deny[msg] if {
+    heavy_scan_program
+    not depth_cap_bounded
+    some p in scan_path_args(program_base)
+    shallow_path_is_denied(p)
+    msg := "Recursive scan (`find`/`du`/`rg`/`fd`/`grep -r`/`ls -R`) on `/` or a 1–2 level path is blocked — full-tree IO saturates the disk and hangs. Discover first with `eza -T -L 2 <dir>`, then scan a specific ≥3-level target (e.g. `/var/lib/docker`, `/home/bhd/.local`). Unlock: `block-shallow-heavy-scan`."
+}
+
+# Raw-token deny: heavy scan program with a bare home-root token whose
+# arg was expanded away (quoted "$HOME" etc). Tilde/path spellings are
+# skipped — only the bare home root (~, $HOME) is shallow (depth 2).
+scan_raw_shallow_token(raw) if { regex.match("(^|\\s)~(\\s|$)", raw) }
+scan_raw_shallow_token(raw) if { regex.match("(^|\\s)\\$HOME(\\s|$)", raw) }
+scan_raw_shallow_token(raw) if { regex.match("(^|\\s)\"\\$HOME\"(\\s|$)", raw) }
+scan_raw_shallow_token(raw) if { regex.match("(^|\\s)'\\$HOME'(\\s|$)", raw) }
+scan_raw_shallow_token(raw) if { regex.match("(^|\\s)\\$\\{HOME\\}(\\s|$)", raw) }
+
+deny[msg] if {
+    heavy_scan_program
+    not groupk_programs[program_base]
+    not depth_cap_bounded
+    scan_raw_shallow_token(input.raw)
+    msg := "Recursive scan (`find`/`du`/`rg`/`fd`/`grep -r`/`ls -R`) on `/` or a 1–2 level path is blocked — full-tree IO saturates the disk and hangs. Discover first with `eza -T -L 2 <dir>`, then scan a specific ≥3-level target (e.g. `/var/lib/docker`, `/home/bhd/.local`). Unlock: `block-shallow-heavy-scan`."
+}
+
+# ──────────────────────────────────────────────────────────────────
 # USAGE
 # ──────────────────────────────────────────────────────────────────
 # After your parser normalizes a raw command into the input struct:

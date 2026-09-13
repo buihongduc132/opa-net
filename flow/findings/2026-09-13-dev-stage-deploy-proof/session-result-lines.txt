@@ -1,0 +1,10 @@
+RESULT|1|git stash pop|BLOCKED
+RESULT|2|du -sh /var|BLOCKED
+RESULT|3|find /home/bhd -name goal.json -mmin -15|BLOCKED
+RESULT|4|eza -T -L 2 .|ALLOWED
+RESULT|5|git status --porcelain=v1|ALLOWED
+RESULT|6|sudo du -sh /var|BLOCKED
+RESULT|7|du -d 1 /|BLOCKED
+RESULT|8|find / -maxdepth 1|ALLOWED
+RESULT|9|rg --max-depth 2 foo /var|ALLOWED
+RESULT|10|eza -T -L 99 /|BLOCKED

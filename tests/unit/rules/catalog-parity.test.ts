@@ -60,4 +60,115 @@ describe('rule catalog ↔ rego parity', () => {
   it('catalog has > 20 rules (rulebook is non-trivial)', () => {
     expect(RULES.length).toBeGreaterThan(20);
   });
+
+  // ── cc-safety-net rulebook parity: the 4 new tmux/pkill/killall rules ──
+  // These rule IDs (canonical cc-safety-net rulebook names) MUST appear in the
+  // catalog once the port is complete. RED until src/rules/catalog.ts is extended.
+  describe('cc-safety-net tmux/pkill/killall rule parity', () => {
+    const REQUIRED_RULE_IDS = [
+      'block-tmux-kill-server',
+      'block-tmux-kill-session',
+      'block-pkill-tmux-wezterm',
+      'block-killall-tmux-wezterm',
+    ];
+
+    it('catalog contains all 4 new tmux/pkill/killall rule IDs', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('each new tmux/pkill/killall rule maps to a known family', () => {
+      const knownFamilies = new Set(RULES.map((r) => r.family));
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      for (const id of REQUIRED_RULE_IDS) {
+        const rule = byId.get(id);
+        expect(rule, `catalog entry for ${id} must exist`).toBeDefined();
+        // family is non-empty and registered in the catalog itself
+        expect(rule!.family.length).toBeGreaterThan(0);
+        expect(knownFamilies.has(rule!.family), `family ${rule!.family} for ${id}`).toBe(true);
+      }
+    });
+  });
+
+  // ── herdr session protection rule parity ──
+  describe('herdr session protection rule parity', () => {
+    const REQUIRED_RULE_IDS = [
+      'block-herdr-server-stop',
+      'block-herdr-session-stop',
+      'block-herdr-session-delete',
+      'block-herdr-workspace-close',
+    ];
+
+    it('catalog contains all herdr rule IDs', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('each herdr rule maps to family herdr', () => {
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      for (const id of REQUIRED_RULE_IDS) {
+        const rule = byId.get(id);
+        expect(rule, `catalog entry for ${id} must exist`).toBeDefined();
+        expect(rule!.family).toBe('herdr');
+      }
+    });
+  });
+
+  // ── pulumi IaC safety rule parity ──
+  describe('pulumi IaC safety rule parity', () => {
+    const REQUIRED_RULE_IDS = [
+      'block-pulumi-up-force',
+      'block-pulumi-destroy',
+      'block-pulumi-stack-rm',
+      'block-pulumi-state-delete',
+    ];
+
+    it('catalog contains all pulumi rule IDs', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('each pulumi rule maps to family pulumi', () => {
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      for (const id of REQUIRED_RULE_IDS) {
+        expect(byId.get(id)?.family).toBe('pulumi');
+      }
+    });
+  });
+
+  // ── home-wide find/grep gate (BHD-196 GREEN) ──
+  describe('home-wide find/grep rule parity', () => {
+    const REQUIRED_RULE_IDS = ['block-home-wide-find', 'block-home-wide-grep'];
+
+    it('catalog contains block-home-wide-find and block-home-wide-grep', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('each home-wide rule maps to family find/grep', () => {
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      expect(byId.get('block-home-wide-find')?.family).toBe('find');
+      expect(byId.get('block-home-wide-grep')?.family).toBe('grep');
+    });
+  });
+
+  // ── shallow heavy scan gate (ban-shallow-heavy-scan / GROUP L) ──
+  describe('shallow heavy scan rule parity', () => {
+    const REQUIRED_RULE_IDS = ['block-shallow-heavy-scan'];
+
+    it('catalog contains block-shallow-heavy-scan', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('block-shallow-heavy-scan maps to family scan', () => {
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      expect(byId.get('block-shallow-heavy-scan')?.family).toBe('scan');
+    });
+  });
 });

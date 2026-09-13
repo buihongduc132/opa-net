@@ -1,0 +1,79 @@
+# Locked decisions — 2026-08-09 cc-safety-replacement-rule-server explore
+# Session-level decisions locked by user verbatim mandate.
+# IMMUTABLE INPUT to future proposals. Cite [LD-S1] / [LD-S2] / etc.
+# Note: LD-S3/LD-S4 superseded by LD-S5 (turn 8 simplification) — kept for traceability.
+
+- id: LD-S1
+  turn: turn4
+  parts: ["user-mandate"]
+  user_quote: |
+    "OUR pi-opa-net must be:
+    - complete replacement of cc safety;
+    - rules must be from the server in opa-net;
+    what are remaining to do"
+  decision: pi-opa-net must become the COMPLETE replacement of cc-safety-net (engine, rules, retirement of the old guard stack)
+  status: locked
+
+- id: LD-S2
+  turn: turn4
+  parts: ["user-mandate"]
+  user_quote: |
+    "OUR pi-opa-net must be:
+    - complete replacement of cc safety;
+    - rules must be from the server in opa-net;
+    what are remaining to do"
+  decision: Rules MUST be served from a server in opa-net (remote rule source), not bundled-only — supersedes repo-level LD2's "not remote" topology for the POLICY dimension
+  status: superseded
+  superseded_by: LD-S5
+
+- id: LD-S3
+  turn: turn6
+  parts: ["user-mandate"]
+  user_quote: |
+    "ensure SERVER is the smart , client is the dump / bridge only (which later on could be very easy to port to the other language);"
+  decision: Architecture polarity = smart server, dumb client (server does parse+eval+build; client = thin bridge porting to other languages is trivial)
+  status: superseded
+  superseded_by: LD-S5
+
+- id: LD-S4
+  turn: turn7
+  parts: ["user-mandate"]
+  user_quote: |
+    "Hmm , make it 3 component: server / client / common;
+    Default rule check path: client -> server ; if server alive , use server , otherwise use the cached one in client;
+    client , if be able to connect to server , always sync from server (per 1 HOUR);
+    server in daemon mode; if socket is quicker then use it instead of rest (over network);
+    the common part: both server and client must be able to resolve the rule itself ;"
+  decision: 3-component (server/client/common) with server-first failover to cached rules, 1h sync, UDS+REST daemon
+  status: superseded
+  superseded_by: LD-S5
+
+- id: LD-S5
+  turn: turn8
+  parts: ["user-mandate", "final-shape"]
+  user_quote: |
+    "Wait , it is simpler to make our plugins just 1 single hook:
+    - load config from central / common place ;
+    - eval;
+    - allow / gate act ;
+    opa-net repository house the rules , we will implement here , Ansible deploy to the ~/.opa-net;
+    no complex logic;
+    intention of the server is that 1 common place of rules for all cli-agents; it is it , that simple;"
+  decision: >
+    Minimal single-hook architecture — no daemon, no runtime server. Each client plugin = 1 hook
+    (load rules from ~/.opa-net → eval → allow/gate). opa-net repo houses rules; Ansible deploys
+    to ~/.opa-net. "Server" = rules directory + Ansible, not a running process.
+  status: locked
+
+- id: LD-S6
+  turn: turn9
+  parts: ["mapping-table", "net"]
+  user_quote: |
+    "BUT remember that:
+    - we are having the feat about: having the override key ;
+    how do make that applicable for the current minimal implementation / stack?"
+  decision: >
+    Unlock-keys carry over unchanged to minimal stack. UnlockFilter runs client-side inside
+    common.eval(). Salt deployed via Ansible to ~/.opa-net/salt. Revocation = TTL keys by
+    default + Ansible salt rotation as fleet-wide kill switch. Zero new code for the feature.
+  status: locked

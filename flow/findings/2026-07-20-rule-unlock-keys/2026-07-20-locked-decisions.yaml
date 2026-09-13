@@ -1,0 +1,183 @@
+# Locked decisions for rule-unlock-keys explore
+# Each entry traces: turn + parts (section ids) + verbatim user_quote + decision.
+# Immutable inputs to future proposals.
+
+- id: LD-L1
+  turn: turn3
+  parts: ["Decisions locked from your answers"]
+  user_quote: |
+    "Q1: no need unlock-once , key per rule (like git stash , different than git stash push)"
+  decision: Granularity K1 per-rule only. One rule = one key. Drop K3 (--unlock-once).
+  status: locked
+
+- id: LD-L2
+  turn: turn3
+  parts: ["Decisions locked from your answers"]
+  user_quote: |
+    "No god key: correct"
+  decision: No god-key. Refuse PIOPANET_UNLOCK_ALL.
+  status: locked
+
+- id: LD-L3
+  turn: turn3
+  parts: ["Decisions locked from your answers"]
+  user_quote: |
+    "design 2 approach: TTL and also long-live"
+  decision: Two key types — long-lived (ll_<16hex>) and TTL (ttl.<exp>.<16hex>). Self-describing prefix.
+  status: locked
+
+- id: LD-L4
+  turn: turn3
+  parts: ["Decisions locked from your answers"]
+  user_quote: |
+    "Q4: no , only these for now."
+  decision: Delivery via ENV + --unlock + --unlock-stdin. Nothing else.
+  status: locked
+
+- id: LD-L5
+  turn: turn4
+  parts: ["Locked decisions (final)"]
+  user_quote: |
+    "Q1: no need unlock-once , key per rule (like git stash , different than git stash push)"
+  decision: Granularity K1 per-rule re-statement (same as LD-L1). Corrected stale hindsight memory.
+  status: superseded
+  superseded_by: LD-L1
+
+- id: LD-L6
+  turn: turn4
+  parts: ["Locked decisions (final)"]
+  user_quote: |
+    "give me YAGNI solutions for now which is be able to easily extend later"
+  decision: Unlock check lives TS-side post-eval filter (confirmed by silence — assistant proposed in turn 2, user did not object).
+  status: locked
+
+- id: LD-Y1
+  turn: turn4
+  parts: ["YAGNI choices + extension seams", "[D-Y1] Salt — minimal now, swappable later"]
+  user_quote: |
+    "YAGNI"
+  decision: Salt deploy-local default (~/.pi-opa-net/salt) + env override seam (PIOPANET_UNLOCK_SALT). SaltResolver interface for future extension.
+  status: locked
+
+- id: LD-Y2
+  turn: turn4
+  parts: ["YAGNI choices + extension seams", "[D-Y2] Audit — minimal now, hook seam later"]
+  user_quote: |
+    "YAGNI"
+  decision: Audit decision-record only (mandatory source:opa-unlocked). NoOpSink default. AuditSink interface for future FileAppendSink/WebhookSink.
+  status: locked
+
+# Gotcha-coverage auto-decisions (step 30)
+
+- id: LD-G1
+  turn: turn2a
+  parts: ["Rank 5 (Sophisticated)", "fail-open (OPA down) is already a KEYLESS universal bypass"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: Accept fail-open degradation when keys present, but add source:'fail-open-keyless' for audit visibility. Do NOT add fail-closed complexity.
+  status: locked
+  auto_decided: true
+  resolves: OT3
+  tradeoff: |
+    Option A: fail-closed when keys present (adds new failure mode: OPA down + keys = all blocked).
+    Option B: accept degradation + audit visibility (chosen).
+    Rationale: YAGNI. User's threat model is trusted agents. If OPA is down, system already degraded.
+    Adding fail-closed creates cascading failure. Audit can detect degradation via source field.
+
+- id: LD-G2
+  turn: turn2a
+  parts: ["Rank 5 (Sophisticated)", "--unlock-stdin DOUBLE-READS fd 0"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: --unlock-stdin requires positional command arg (so stdin is free for the key).
+  status: locked
+  auto_decided: true
+  resolves: OT4
+  tradeoff: |
+    Option A: --unlock-stdin requires positional command arg (chosen).
+    Option B: keys from fd 3 (adds complexity).
+    Option C: --command-stdin vs --key-stdin flags (adds new flags, violates LD-L4 'nothing else').
+    Rationale: YAGNI. Option A preserves all three channels (ENV + --unlock + --unlock-stdin) without
+    adding new flags. Slightly less flexible (can't pipe both command and key), but simplest.
+
+- id: LD-G3
+  turn: turn2a
+  parts: ["Rank 5 (Sophisticated)", "Cache poisoning — cache key must include the unlock-set"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: Force cacheTtlMs=0 when any unlock keys are present. Do NOT add cache key complexity.
+  status: locked
+  auto_decided: true
+  resolves: OT5
+  tradeoff: |
+    Option A: cache key includes hash of unlock-key-set (adds complexity).
+    Option B: force cacheTtlMs=0 when keys present (chosen).
+    Rationale: YAGNI. Cache is not enabled by default (cacheTtlMs default 0). When keys present,
+    disable caching entirely. Simpler, safer. Performance hit acceptable for security-critical path.
+
+- id: LD-G4
+  turn: turn2a
+  parts: ["Rank 4 (Significant)", "gcloud / bq rules CANNOT be unlocked"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: Scope unlock to catalog-registered rules only. Document gcloud/bq as out-of-scope.
+  status: locked
+  auto_decided: true
+  resolves: OT6
+  tradeoff: |
+    Option A: register gcloud/bq as discrete RuleMeta entries (adds complexity, sprintf rules are dynamic).
+    Option B: scope out + document (chosen).
+    Rationale: YAGNI. gcloud/bq are rare rules with dynamic messages. Registering them as discrete entries
+    adds schema complexity. Scoping out is simpler. pi-opa-net unlock-key --list reflects catalog only.
+
+- id: LD-G5
+  turn: turn2a
+  parts: ["Rank 4 (Significant)", "NO revocation for long-lived keys"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: Accept salt-rotation-only as the only LL key revocation mechanism. Document as hard constraint.
+  status: locked
+  auto_decided: true
+  resolves: OT9
+  tradeoff: |
+    Option A: accept salt-rotation-only (chosen).
+    Option B: add minimal revocation list seam (~/.pi-opa-net/revoked.txt) (adds server-side state).
+    Rationale: YAGNI. Revocation list contradicts 'no server-side state' design. LL keys are for trusted
+    agents. If leaked, rotate salt. Operational sledgehammer accepted as documented constraint.
+
+- id: LD-G6
+  turn: turn2a
+  parts: ["Rank 5 (Sophisticated)", "Multiple rules fire on one command → need ALL keys"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: Allow only when ALL blocking reasons are unlocked. Add reasons[].bypassed per-entry + metadata.unlock_blocked_count.
+  status: locked
+  auto_decided: true
+  resolves: OT11
+  tradeoff: |
+    Option A: allow ⟺ every severity:block reason has matching valid key (chosen).
+    Option B: partial bypass (security hole).
+    Rationale: No alternative. Partial bypass is undefined output state. All-or-nothing is the only
+    correct semantics. Schema already has reasons[].bypassed per-entry (turn3 delta).
+
+- id: LD-G7
+  turn: turn2a
+  parts: ["Rank 4 (Significant)", "rule_id mutability invalidates all minted keys"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: Forbid rule_id renames in CONTRIBUTING. Treat rule_id as immutable hash input.
+  status: locked
+  auto_decided: true
+  resolves: OT12
+  tradeoff: |
+    Option A: forbid renames in CONTRIBUTING (chosen).
+    Option B: carry key_aliases:[...] field (adds schema complexity).
+    Rationale: YAGNI. rule_id is a hash input, not a user-facing name. key_aliases adds schema complexity.
+    Forbidding renames is simpler (documentation/policy). If rename needed, mint new keys under new id.
+
+- id: LD-G8
+  turn: turn2a
+  parts: ["Rank 4 (Significant)", "TS-filter crash has NO fail-mode"]
+  user_quote: "auto-decided (no explicit user lock)"
+  decision: Wrap unlock filter in try/catch. On error, fall back to UN-FILTERED engine decision (if OPA said deny, stay deny). Log source:'unlock-filter-error'.
+  status: locked
+  auto_decided: true
+  resolves: OT14
+  tradeoff: |
+    Option A: wrap in try/catch, fall back to un-filtered decision (chosen).
+    Option B: no fail-mode (crash = undefined behavior).
+    Rationale: No alternative. If filter crashes, never allow-by-accident. Fall back to OPA decision.
+    Log source:'unlock-filter-error' for audit. This is the only safe fail-mode.

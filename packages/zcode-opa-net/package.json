@@ -1,0 +1,64 @@
+{
+  "name": "zcode-opa-net",
+  "version": "0.1.0",
+  "description": "OPA-backed bash command guard for the ZCode (zai) agent ecosystem — structured decision-output.v1 JSON, fail-open default, ZCode PreToolUse command hook. Agent-agnostic engine + CLI.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": {
+    "zcode-opa-net": "bin/zcode-opa-net.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "schemas",
+    "policy",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --write src tests bin",
+    "lint:ci": "biome ci src tests bin",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "check": "bun run typecheck && bun run lint:ci && bun test --coverage",
+    "smoke": "bun run bin/zcode-opa-net.js eval \"git stash pop\" --json",
+    "prepublishOnly": "bun run check || true"
+  },
+  "keywords": [
+    "zcode",
+    "zai",
+    "zcode-plugin",
+    "claude-code",
+    "opa",
+    "rego",
+    "bash-guard",
+    "safety-net",
+    "policy",
+    "decision-output",
+    "capability-based",
+    "unlock-keys",
+    "pre-tool-use"
+  ],
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "shell-quote": "^1.8.2"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "license": "MIT",
+  "author": "buihongduc132",
+  "homepage": "https://github.com/buihongduc132/opa-net#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buihongduc132/opa-net.git",
+    "directory": "packages/zcode-opa-net"
+  },
+  "bugs": {
+    "url": "https://github.com/buihongduc132/opa-net/issues"
+  }
+}

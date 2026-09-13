@@ -1,0 +1,1 @@
+{"decision_id":"b1e0faaf-9163-4e77-8720-65dd7078fd62","decision":"deny","source":"opa","command":"find /home/bhd -name goal.json -mmin -15","rule_ids":["block-home-wide-find"],"evaluated_at":"2026-09-13T04:55:20.886Z","pi_opa_net_version":"0.7.0"}

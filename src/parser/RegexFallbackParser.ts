@@ -1,7 +1,19 @@
 import type { CommandParser, ParsedCommand } from './types.ts';
 
 /** Programs with a subcommand shape — mirror of ShellQuoteParser's set. */
-const SUBCOMMAND_PROGRAMS = new Set(['git', 'docker', 'gh', 'glab']);
+const SUBCOMMAND_PROGRAMS = new Set([
+  'git',
+  'docker',
+  'gh',
+  'glab',
+  'pulumi',
+  'terraform',
+  'tofu',
+  'terragrunt',
+  'nomad',
+  'consul',
+  'vault',
+]);
 
 /**
  * Regex-only fallback parser [OT1 resolution: fallback path].

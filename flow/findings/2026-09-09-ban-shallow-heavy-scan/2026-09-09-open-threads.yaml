@@ -1,0 +1,39 @@
+status: ongoing
+threads:
+  - id: OT1
+    topic: du depth semantics — exactly 3 vs >=3
+    raised_in: turn3
+    status: open
+    resolution: ""
+    note: |
+      User wrote "For DU , depth 3". Turn-2 model used depth >= 3. Interpreted LD4 as
+      >=3 (consistent), but "exactly 3" is a plausible reading. Confirm at plan step.
+
+  - id: OT2
+    topic: rule implementation landing
+    raised_in: turn2
+    status: open
+    resolution: ""
+    note: |
+      Where the ban lands: policy/safety.rego (GROUP L) + src/rules/catalog.ts
+      (scan family) + src/rules/RuleRegistry.ts (extend RuleFamily union).
+      Deferred to /10-plan-declarative.
+
+  - id: OT3
+    topic: guard must live at tool-call path, not shell
+    raised_in: turn4
+    status: open
+    resolution: ""
+    note: |
+      atuin shows heavy scans are agent-internal (only `pi --session`/`agy -i` launch
+      wrappers in shell history). Guard must intercept the agent bash tool (opa-net
+      hook). Shell aliases/atuin never fire.
+
+  - id: OT4
+    topic: eza must remain allowed at shallow depth
+    raised_in: turn2
+    status: open
+    resolution: ""
+    note: |
+      eza -T -L 2 is the discovery step at depth <=2. If eza is also banned at
+      shallow depth, the discovery flow deadlocks. eza = allow class.

@@ -1,4 +1,5 @@
 import type { ParsedCommand } from '../parser/types.ts';
+import type { Signals } from '../signals/types.ts';
 
 /**
  * Raw deny reasons from the engine (before provenance enrichment).
@@ -29,7 +30,7 @@ export interface EngineDecision {
 export interface DecisionEngine {
   readonly name: string;
   /** Evaluate the parsed command against the policy. */
-  evaluate(parsed: ParsedCommand): Promise<EngineDecision>;
+  evaluate(parsed: ParsedCommand, signals?: Signals): Promise<EngineDecision>;
   /** SHA-256 prefix (12 hex) of the active policy bundle — for drift detection. */
   rulebookDigest(): string;
 }

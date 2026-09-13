@@ -1,0 +1,3 @@
+[cc-hooks-loader] Claude event 'SubagentStop' has no pi equivalent — skipping 1 group(s) 
+[wt] pi-kit@0.1.2
+[cc-hooks-loader] hook 'bash '/home/bhd/.claude/hooks/herdr-agent-state.sh' session' exited 124: command 'bash '/home/bhd/.claude/hooks/herdr-agent-state.sh' session' timed out after 10ms 
