@@ -19,6 +19,7 @@ const GLOBAL_OPTIONS_WITH_VALUE = new Set([
   '--work-tree',
   '--namespace',
   '--exec-path',
+  '--config-env',
 ]);
 
 /** Global options that take no value (flags only). */
@@ -30,6 +31,7 @@ const GLOBAL_OPTIONS_NO_VALUE = new Set([
   '--no-pager',
   '--no-replace-objects',
   '--no-lazy-fetch',
+  '--no-optional-locks',
   '--no-advice',
   '--help',
   '--version',

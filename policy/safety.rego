@@ -930,29 +930,39 @@ is_home_prefix(p) if {
 # Known goal-dir prefixes that MUST stay allowed without a key.
 # Every spelling requires a path boundary (`/` or end) so a sibling like
 # `~/.pi/goals-evil` is NOT exempted (cubic P1 on safety.rego:931).
-is_known_goal_dir(p) if { p == "~/.pi/goals" }
-is_known_goal_dir(p) if { startswith(p, "~/.pi/goals/") }
-is_known_goal_dir(p) if { p == "~/.verifier-loop/goals" }
-is_known_goal_dir(p) if { startswith(p, "~/.verifier-loop/goals/") }
-is_known_goal_dir(p) if { regex.match("^/home/[^/]+/\\.pi/goals(/|$)", p) }
-is_known_goal_dir(p) if { regex.match("^/home/[^/]+/\\.verifier-loop/goals(/|$)", p) }
-is_known_goal_dir(p) if { regex.match("\\$HOME/\\.pi/goals(/|$)", p) }
-is_known_goal_dir(p) if { regex.match("\\$HOME/\\.verifier-loop/goals(/|$)", p) }
-is_known_goal_dir(p) if {
+known_goal_prefix(p) if { p == "~/.pi/goals" }
+known_goal_prefix(p) if { startswith(p, "~/.pi/goals/") }
+known_goal_prefix(p) if { p == "~/.verifier-loop/goals" }
+known_goal_prefix(p) if { startswith(p, "~/.verifier-loop/goals/") }
+known_goal_prefix(p) if { regex.match("^/home/[^/]+/\\.pi/goals(/|$)", p) }
+known_goal_prefix(p) if { regex.match("^/home/[^/]+/\\.verifier-loop/goals(/|$)", p) }
+known_goal_prefix(p) if { regex.match("\\$HOME/\\.pi/goals(/|$)", p) }
+known_goal_prefix(p) if { regex.match("\\$HOME/\\.verifier-loop/goals(/|$)", p) }
+known_goal_prefix(p) if {
     home_dir != ""
     p == sprintf("%s/.pi/goals", [home_dir])
 }
-is_known_goal_dir(p) if {
+known_goal_prefix(p) if {
     home_dir != ""
     startswith(p, sprintf("%s/.pi/goals/", [home_dir]))
 }
-is_known_goal_dir(p) if {
+known_goal_prefix(p) if {
     home_dir != ""
     p == sprintf("%s/.verifier-loop/goals", [home_dir])
 }
-is_known_goal_dir(p) if {
+known_goal_prefix(p) if {
     home_dir != ""
     startswith(p, sprintf("%s/.verifier-loop/goals/", [home_dir]))
+}
+
+# A `..` segment escapes the goal dir (`~/.pi/goals/../../.ssh`) — reject it
+# so the goal-dir allowlist cannot be used to traverse out (cubic P1:937).
+has_dotdot_segment(p) if { regex.match("(^|/)\\.\\.(/|$)", p) }
+
+# The allow-class exemption: a known-goal prefix WITHOUT any `..` segment.
+is_known_goal_dir(p) if {
+    known_goal_prefix(p)
+    not has_dotdot_segment(p)
 }
 
 # Empty path args (shell-quote expanded `$HOME` → "") are NOT allow-class.
@@ -1028,10 +1038,12 @@ find_raw_home_token(raw) if { regex.match("(^|\\s)~(/|\\s|$)", raw) }
 
 # Raw-based deny: $HOME / ~ token present; args lost the expansion.
 # Exempt known goal dirs. Exempt `$HOME/<repo>` is handled via args + cwd.
-find_raw_known_goal(raw) if { regex.match("\\$HOME/\\.pi/goals", raw) }
-find_raw_known_goal(raw) if { regex.match("\\$HOME/\\.verifier-loop/goals", raw) }
-find_raw_known_goal(raw) if { regex.match("~/.pi/goals", raw) }
-find_raw_known_goal(raw) if { regex.match("~/.verifier-loop/goals", raw) }
+# Every goal spelling requires a path boundary so a sibling scan like
+# `find ~/.pi/goals-evil` is NOT exempted (cubic P1 on safety.rego:934).
+find_raw_known_goal(raw) if { regex.match("\\$HOME/\\.pi/goals(/|$)", raw) }
+find_raw_known_goal(raw) if { regex.match("\\$HOME/\\.verifier-loop/goals(/|$)", raw) }
+find_raw_known_goal(raw) if { regex.match("~/.pi/goals(/|$)", raw) }
+find_raw_known_goal(raw) if { regex.match("~/.verifier-loop/goals(/|$)", raw) }
 
 # Args-based deny: any find path is a home-wide prefix outside the allow class.
 deny[msg] if {

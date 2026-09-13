@@ -3,78 +3,129 @@ import { programBasename } from './unwrapShellDashC.ts';
 
 /**
  * Split a raw command into top-level command segments on shell CONTROL
- * operators (`;`, `;;`, `&&`, `||`, `|`, `|&`, `&`) — while respecting
- * quoting, which a naive string split cannot (`bash -c 'echo; find'` must not
- * be cut at the inner `;`).
+ * operators (`;`, `;;`, `&&`, `||`, `|`, `|&`, `&`) — while preserving the
+ * ORIGINAL raw text of each segment. Token-reconstruction is NOT used because
+ * it drops raw `$HOME` (→ empty arg) and glob tokens (`/*`), which are exactly
+ * the raw-token deny signals the rego relies on (`rm -rf /*`, `find $HOME`).
  *
- * Redirects (`>`, `>>`, `<`, …) are NOT segment boundaries; their surrounding
- * words stay in the same segment (safety evaluation keys on the program, not
- * the redirect target).
+ * A quote-aware scanner finds top-level operator positions (operators inside
+ * single/double quotes and backslash escapes are NOT boundaries), then the raw
+ * string is sliced at those positions so every segment keeps its exact text.
  *
  * `bash -c` / `sh -c` payloads are recursively split: `bash -c 'x' && find /`
- * yields [`x`, `find /`] so the trailing command is evaluated instead of
- * silently dropped (cubic P0 on src/cli/run.ts:145).
+ * yields [`x`, `find /`] so a trailing command is evaluated, not dropped.
  */
-const CONTROL_OPS = new Set([';', ';;', '&&', '||', '|', '|&', '&']);
+const TWO_CHAR_OPS = new Set(['&&', '||', '|&', ';;']);
 
-function isDashCProgram(tokens: string[]): boolean {
-  const p = programBasename(tokens[0] ?? '');
-  return p === 'bash' || p === 'sh';
+function tryUnwrapDashC(segment: string): string | null {
+  let tokens: unknown[];
+  try {
+    tokens = shellQuoteParse(segment);
+  } catch {
+    return null;
+  }
+  const strings = tokens.filter((t): t is string => typeof t === 'string');
+  const base = programBasename(strings[0] ?? '');
+  if (base !== 'bash' && base !== 'sh') return null;
+  for (let i = 0; i < strings.length; i++) {
+    const a = strings[i];
+    if (a === '-c' || a === '--command') return strings[i + 1] ?? null;
+    if (a.startsWith('-') && !a.startsWith('--') && a.includes('c') && a.length <= 4) {
+      return strings[i + 1] ?? null;
+    }
+  }
+  return null;
 }
 
-function dashCIndex(args: string[]): number {
-  return args.findIndex(
-    (a) =>
-      a === '-c' ||
-      a === '--command' ||
-      (a.startsWith('-') && !a.startsWith('--') && a.includes('c') && a.length <= 4),
-  );
+/** Split raw on top-level control operators, preserving each segment's raw text. */
+function splitRawTopLevel(raw: string): string[] {
+  const segments: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | null = null;
+  let i = 0;
+
+  while (i < raw.length) {
+    const ch = raw[i];
+
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = null;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      cur += ch;
+      i++;
+      continue;
+    }
+    if (ch === '\\') {
+      cur += ch;
+      i++;
+      if (i < raw.length) {
+        cur += raw[i];
+        i++;
+      }
+      continue;
+    }
+
+    const two = raw.slice(i, i + 2);
+    if (TWO_CHAR_OPS.has(two)) {
+      const s = cur.trim();
+      if (s) segments.push(s);
+      cur = '';
+      i += 2;
+      continue;
+    }
+    if (ch === ';') {
+      const s = cur.trim();
+      if (s) segments.push(s);
+      cur = '';
+      i++;
+      continue;
+    }
+    if (ch === '|') {
+      const s = cur.trim();
+      if (s) segments.push(s);
+      cur = '';
+      i++;
+      continue;
+    }
+    if (ch === '&') {
+      // `&` is a control background separator only when NOT part of a redirect
+      // (`2>&1`, `>&file`, `&>file`, `&>>file`).
+      const next = raw[i + 1];
+      if (next !== '>' && next !== '<') {
+        const s = cur.trim();
+        if (s) segments.push(s);
+        cur = '';
+        i++;
+        continue;
+      }
+      cur += ch;
+      i++;
+      continue;
+    }
+
+    cur += ch;
+    i++;
+  }
+
+  const s = cur.trim();
+  if (s) segments.push(s);
+  return segments.length ? segments : [raw.trim()];
 }
 
 export function splitTopLevelSegments(raw: string): string[] {
-  const trimmed = raw.trim();
-  let tokens: unknown[];
-  try {
-    tokens = shellQuoteParse(trimmed);
-  } catch {
-    return [trimmed];
-  }
-
-  const strings = tokens.filter((t): t is string => typeof t === 'string');
-  if (strings.length === 0) return [trimmed];
-
-  // bash -c / sh -c: the -c payload is a full command string; split it too and
-  // keep any trailing words (separated by dropped control ops) as a tail segment.
-  if (isDashCProgram(strings)) {
-    const i = dashCIndex(strings);
-    if (i >= 0 && strings[i + 1]) {
-      const payload = strings[i + 1];
-      const tail = strings.slice(i + 2);
-      const segs: string[] = [];
-      for (const s of splitTopLevelSegments(payload)) segs.push(s);
-      const tailSeg = tail.join(' ').trim();
-      if (tailSeg) segs.push(tailSeg);
-      return segs;
+  const top = splitRawTopLevel(raw);
+  const out: string[] = [];
+  for (const segment of top) {
+    const inner = tryUnwrapDashC(segment);
+    if (inner !== null) {
+      for (const sub of splitTopLevelSegments(inner)) out.push(sub);
+    } else {
+      out.push(segment);
     }
   }
-
-  const segments: string[] = [];
-  let cur: string[] = [];
-  const flush = () => {
-    const s = cur.join(' ').trim();
-    if (s) segments.push(s);
-    cur = [];
-  };
-  for (const t of tokens) {
-    if (typeof t === 'object' && t !== null) {
-      const op = (t as { op?: string }).op ?? '';
-      if (CONTROL_OPS.has(op)) flush();
-      // Non-control ops (redirects): the object is not a word; surrounding
-      // string tokens stay in `cur`.
-    } else if (typeof t === 'string') {
-      cur.push(t);
-    }
-  }
-  flush();
-  return segments.length ? segments : [trimmed];
+  return out.length ? out : [raw.trim()];
 }
