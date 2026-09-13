@@ -51,6 +51,10 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # NODE_AUTH_TOKEN must be job-scoped so setup-node can write it into .npmrc
+    # when `registry-url` runs. Step-scoped env is too late → npm publish ENEEDAUTH.
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -74,5 +78,3 @@ jobs:
           echo "npm current=$CURRENT local=$LOCAL"
           [ "$CURRENT" != "$LOCAL" ]
       - run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
