@@ -10,7 +10,8 @@ import { DecisionBuilder, type DecisionOutput } from '../output/DecisionBuilder.
 import { OutputFormatter, validateDecision } from '../output/OutputFormatter.ts';
 import { classifyCheckoutTarget } from '../parser/checkoutTarget.ts';
 import type { CommandParser, ParsedCommand } from '../parser/index.ts';
-import { CommandParserCoordinator, programBasename, unwrapShellDashC } from '../parser/index.ts';
+import { CommandParserCoordinator, programBasename } from '../parser/index.ts';
+import { splitTopLevelSegments } from '../parser/splitTopLevelSegments.ts';
 import { RULES, RuleRegistry } from '../rules/index.ts';
 import {
   EnvSignals,
@@ -136,23 +137,18 @@ async function evaluatePossiblyCompound(
 ): Promise<DecisionOutput> {
   const { parser, engine, config, builder, unlockKeys, hasKeys, baseCwd, collectors } = deps;
 
-  // OT-bash-c: unwrap BEFORE splitting on ';'. Quoted `-c` payload is one
-  // parser arg; a naive `;` split would cut through the inner program
-  // (`bash -c 'echo; find …'` → `bash -c 'echo` + `find …'`).
-  const outerParsed = parser.parse(raw);
-  const inner = unwrapShellDashC(outerParsed);
-  if (inner && inner.trim().length > 0 && inner !== raw) {
-    return evaluatePossiblyCompound(inner, deps);
-  }
-
-  // Split on ';' but only treat as compound if more than one non-empty segment.
-  const segments = raw
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  // Compound commands: split on top-level shell CONTROL operators with
+  // quote-aware tokenization (naive `;` split would cut through a quoted
+  // `bash -c 'echo; find …'` payload). `bash -c` payloads are recursively
+  // split, and trailing commands after `&&`/`||`/`|` are preserved.
+  const segments = splitTopLevelSegments(raw);
 
   if (segments.length <= 1) {
-    const parsed = outerParsed;
+    // Single (non-compound) command: parse the ORIGINAL raw so shell-quote
+    // expansions stay intact (`$HOME` → empty arg, `/*` → glob token are the
+    // raw-token deny signals in the rego). Rejoining the segment would drop
+    // them and silently allow `rm -rf $HOME` / `rm -rf /*`.
+    const parsed = parser.parse(raw);
     // LD8: Use parsed.gitCwd (from -C <path>) if present, otherwise baseCwd.
     const effectiveCwd = parsed.gitCwd ?? baseCwd;
     const signals = collectSignals(parsed, effectiveCwd, raw, config, collectors);

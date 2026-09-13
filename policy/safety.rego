@@ -928,19 +928,31 @@ is_home_prefix(p) if {
 }
 
 # Known goal-dir prefixes that MUST stay allowed without a key.
-is_known_goal_dir(p) if { startswith(p, "~/.pi/goals") }
-is_known_goal_dir(p) if { startswith(p, "~/.verifier-loop/goals") }
-is_known_goal_dir(p) if { regex.match("^/home/[^/]+/\\.pi/goals", p) }
-is_known_goal_dir(p) if { regex.match("^/home/[^/]+/\\.verifier-loop/goals", p) }
-is_known_goal_dir(p) if { regex.match("\\$HOME/\\.pi/goals", p) }
-is_known_goal_dir(p) if { regex.match("\\$HOME/\\.verifier-loop/goals", p) }
+# Every spelling requires a path boundary (`/` or end) so a sibling like
+# `~/.pi/goals-evil` is NOT exempted (cubic P1 on safety.rego:931).
+is_known_goal_dir(p) if { p == "~/.pi/goals" }
+is_known_goal_dir(p) if { startswith(p, "~/.pi/goals/") }
+is_known_goal_dir(p) if { p == "~/.verifier-loop/goals" }
+is_known_goal_dir(p) if { startswith(p, "~/.verifier-loop/goals/") }
+is_known_goal_dir(p) if { regex.match("^/home/[^/]+/\\.pi/goals(/|$)", p) }
+is_known_goal_dir(p) if { regex.match("^/home/[^/]+/\\.verifier-loop/goals(/|$)", p) }
+is_known_goal_dir(p) if { regex.match("\\$HOME/\\.pi/goals(/|$)", p) }
+is_known_goal_dir(p) if { regex.match("\\$HOME/\\.verifier-loop/goals(/|$)", p) }
 is_known_goal_dir(p) if {
     home_dir != ""
-    startswith(p, sprintf("%s/.pi/goals", [home_dir]))
+    p == sprintf("%s/.pi/goals", [home_dir])
 }
 is_known_goal_dir(p) if {
     home_dir != ""
-    startswith(p, sprintf("%s/.verifier-loop/goals", [home_dir]))
+    startswith(p, sprintf("%s/.pi/goals/", [home_dir]))
+}
+is_known_goal_dir(p) if {
+    home_dir != ""
+    p == sprintf("%s/.verifier-loop/goals", [home_dir])
+}
+is_known_goal_dir(p) if {
+    home_dir != ""
+    startswith(p, sprintf("%s/.verifier-loop/goals/", [home_dir]))
 }
 
 # Empty path args (shell-quote expanded `$HOME` → "") are NOT allow-class.
@@ -967,11 +979,12 @@ is_under_eval_cwd(p) if {
 }
 
 # .worktrees prefix (repo-relative or absolute under cwd).
+# The unscoped `/.worktrees` match was removed — a `.worktrees` anywhere on disk
+# must NOT read as the allowlisted worktree tree (cubic P1 on safety.rego:974).
 is_worktrees_path(p) if { p == ".worktrees" }
 is_worktrees_path(p) if { startswith(p, ".worktrees/") }
 is_worktrees_path(p) if { p == "./.worktrees" }
 is_worktrees_path(p) if { startswith(p, "./.worktrees/") }
-is_worktrees_path(p) if { regex.match("/\\.worktrees(/|$)", p) }
 is_worktrees_path(p) if {
     eval_cwd != ""
     p == sprintf("%s/.worktrees", [eval_cwd])

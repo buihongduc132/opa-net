@@ -57,6 +57,12 @@ export function stripGitGlobalOptions(args: readonly string[]): string[] {
 /**
  * Strip git global options AND capture -C <path> for cwd propagation.
  * This is the full version that returns metadata about what was stripped.
+ *
+ * Globals are stripped ONLY from the leading run before the first
+ * subcommand (non-option token). A `-C` AFTER the subcommand is a subcommand
+ * flag (e.g. `git switch -C <branch>` = force-create), NOT a global — stripping
+ * it here would let the force operation bypass policy (cubic P1 on
+ * src/parser/ShellQuoteParser.ts:78).
  */
 export function stripWithMeta(args: readonly string[]): StripResult {
   const result: string[] = [];
@@ -66,36 +72,39 @@ export function stripWithMeta(args: readonly string[]): StripResult {
   while (i < args.length) {
     const arg = args[i];
 
-    // Check for =-joined form: --git-dir=/path, -C=/path
+    // =-joined form: --git-dir=/path, -C=/path
     const eqIdx = arg.indexOf('=');
     if (eqIdx !== -1) {
       const key = arg.slice(0, eqIdx);
       const value = arg.slice(eqIdx + 1);
       if (GLOBAL_OPTIONS_WITH_VALUE.has(key)) {
         if (key === '-C') cPath = value;
-        i++; // skip this arg entirely
+        i++;
         continue;
       }
+      // Not a global option — the subcommand (or a flag after it) begins here.
+      result.push(...args.slice(i));
+      break;
     }
 
-    // Check for space-separated form: -C /path
+    // Space-separated form: -C /path
     if (GLOBAL_OPTIONS_WITH_VALUE.has(arg)) {
       if (arg === '-C' && i + 1 < args.length) {
         cPath = args[i + 1];
       }
-      i += 2; // skip option + its value
+      i += 2;
       continue;
     }
 
-    // Check for no-value flags
+    // No-value global flags
     if (GLOBAL_OPTIONS_NO_VALUE.has(arg)) {
       i++;
       continue;
     }
 
-    // Not a global option — keep it
-    result.push(arg);
-    i++;
+    // First non-option token = the subcommand; stop stripping.
+    result.push(...args.slice(i));
+    break;
   }
 
   return { args: result, cPath };

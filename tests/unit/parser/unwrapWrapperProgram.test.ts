@@ -75,4 +75,32 @@ describe('unwrapWrapperTokens — gotcha wrapper-unwrap', () => {
   it('not-a-wrapper du -sh / → unchanged (unknown prefix is a program)', () => {
     expect(unwrapWrapperTokens(['zzz', 'du', '-sh', '/'])).toEqual(['zzz', 'du', '-sh', '/']);
   });
+
+  it('env -C DIR du -sh / → -C consumes the chdir value (P1 regression)', () => {
+    expect(unwrapWrapperTokens(['env', '-C', '/tmp', 'du', '-sh', '/'])).toEqual([
+      'du',
+      '-sh',
+      '/',
+    ]);
+  });
+
+  it('env --chdir=DIR du -sh / → --chdir consumed', () => {
+    expect(unwrapWrapperTokens(['env', '--chdir=/tmp', 'du', '-sh', '/'])).toEqual([
+      'du',
+      '-sh',
+      '/',
+    ]);
+  });
+
+  it('timeout --preserve-status 5 du -sh / → boolean flag NOT value-taking (P1 regression)', () => {
+    expect(unwrapWrapperTokens(['timeout', '--preserve-status', '5', 'du', '-sh', '/'])).toEqual([
+      'du',
+      '-sh',
+      '/',
+    ]);
+  });
+
+  it('ionice -t du -sh / → -t boolean NOT value-taking (P1 regression)', () => {
+    expect(unwrapWrapperTokens(['ionice', '-t', 'du', '-sh', '/'])).toEqual(['du', '-sh', '/']);
+  });
 });

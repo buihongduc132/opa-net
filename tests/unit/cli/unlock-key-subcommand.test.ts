@@ -49,6 +49,37 @@ describe('unlock-key subcommand', () => {
   });
 
   describe('mint TTL key', () => {
+    it('rejects zero ttlSec (no silent long-lived key) — P1 regression', () => {
+      expect(() =>
+        mintUnlockKey({ ruleId: 'block-git-stash-mutations', saltPath, ttlSec: 0 }),
+      ).toThrow(/invalid ttlSec/);
+    });
+
+    it('rejects negative ttlSec', () => {
+      expect(() =>
+        mintUnlockKey({ ruleId: 'block-git-stash-mutations', saltPath, ttlSec: -5 }),
+      ).toThrow(/invalid ttlSec/);
+    });
+
+    it('rejects fractional ttlSec', () => {
+      expect(() =>
+        mintUnlockKey({ ruleId: 'block-git-stash-mutations', saltPath, ttlSec: 1.5 }),
+      ).toThrow(/invalid ttlSec/);
+    });
+
+    it('rejects NaN/Infinity ttlSec', () => {
+      expect(() =>
+        mintUnlockKey({ ruleId: 'block-git-stash-mutations', saltPath, ttlSec: Number.NaN }),
+      ).toThrow(/invalid ttlSec/);
+      expect(() =>
+        mintUnlockKey({
+          ruleId: 'block-git-stash-mutations',
+          saltPath,
+          ttlSec: Number.POSITIVE_INFINITY,
+        }),
+      ).toThrow(/invalid ttlSec/);
+    });
+
     it('prints ttl.<exp>.<16hex> with exp ≈ now+ttl', () => {
       const before = Math.floor(Date.now() / 1000);
       const key = mintUnlockKey({

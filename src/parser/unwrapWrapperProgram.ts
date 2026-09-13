@@ -28,11 +28,11 @@ const WRAPPERS: ReadonlySet<string> = new Set([
 /** Flags whose value arrives as the NEXT token (per wrapper). */
 const VALUE_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = {
   sudo: new Set(['-u', '-g', '-p', '-U', '-r', '-t', '-C', '-D']),
-  env: new Set(['-u']),
+  env: new Set(['-u', '-C', '--chdir']),
   nice: new Set(['-n', '--adjustment']),
-  timeout: new Set(['-k', '-s', '--signal', '--kill-after', '--preserve-status']),
+  timeout: new Set(['-k', '-s', '--signal', '--kill-after']),
   stdbuf: new Set(['-o', '-e', '-i']),
-  ionice: new Set(['-c', '-n', '-t']),
+  ionice: new Set(['-c', '-n']),
   nohup: new Set(),
   time: new Set(),
 };

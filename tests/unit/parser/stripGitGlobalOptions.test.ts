@@ -106,6 +106,24 @@ describe('stripGitGlobalOptions', () => {
     it('passes through empty array', () => {
       expect(stripGitGlobalOptions([])).toEqual([]);
     });
+
+    it('subcommand -C force flag is NOT stripped (P1 regression)', () => {
+      // `git switch -C <branch>` / `git branch -C` — -C here is the
+      // subcommand's force-create flag, not a git global.
+      expect(stripGitGlobalOptions(['switch', '-C', 'feature'])).toEqual([
+        'switch',
+        '-C',
+        'feature',
+      ]);
+    });
+
+    it('leading global -C is stripped, subcommand -C after is kept', () => {
+      expect(stripGitGlobalOptions(['-C', '/repo', 'switch', '-C', 'feature'])).toEqual([
+        'switch',
+        '-C',
+        'feature',
+      ]);
+    });
   });
 
   describe('LD8 bypass scenarios (must strip)', () => {

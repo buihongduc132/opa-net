@@ -32,7 +32,16 @@ export function mintUnlockKey(opts: MintUnlockKeyOptions): string {
 
   const salt = opts.salt ?? new SaltResolver({ saltPath: opts.saltPath }).resolve();
 
-  if (opts.ttlSec !== undefined && opts.ttlSec > 0) {
+  if (opts.ttlSec !== undefined) {
+    if (
+      !Number.isFinite(opts.ttlSec) ||
+      !Number.isInteger(opts.ttlSec) ||
+      opts.ttlSec <= 0
+    ) {
+      throw new Error(
+        `invalid ttlSec '${opts.ttlSec}' — must be a finite positive integer (seconds). Omit ttlSec for a long-lived key.`,
+      );
+    }
     const exp = Math.floor(Date.now() / 1000) + opts.ttlSec;
     const mac = KeyDerivation.derive(salt, `${opts.ruleId}.${exp}`);
     return `ttl.${exp}.${mac}`;
