@@ -29,6 +29,11 @@ export function markHookRegistered(): void {
   hookRegistered = true;
 }
 
+/** Test-only reset so each test starts from clean module state (A4 macos flake). */
+export function __resetHookRegistrationForTest(): void {
+  hookRegistered = false;
+}
+
 /** True once the loader has registered the tool_call hook. */
 export function isHookRegistered(): boolean {
   return hookRegistered;

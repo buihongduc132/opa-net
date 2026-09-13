@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+
 /** Fail-mode when the decision engine is unreachable [OT2 resolution].
  * - `open`: allow the command through (default — matches pi-safety-net fork).
  * - `closed`: block the command until engine responds.
@@ -51,8 +53,8 @@ export function resolveOpaBinary(explicit?: string): string {
   if (ENV.PI_OPA_BINARY) return ENV.PI_OPA_BINARY;
   // mise install path (LD2: OPA lazy-loaded on every dev box).
   const misePath = `${process.env.HOME}/.local/share/mise/installs/opa`;
-  try {
-    const versions = readdirSafe(misePath);
+  const versions = readdirSafe(misePath);
+  if (versions.length > 0) {
     // Prefer the most specific semver; fall back to 'latest'.
     const pick =
       versions
@@ -60,10 +62,12 @@ export function resolveOpaBinary(explicit?: string): string {
         .sort()
         .at(-1) ?? 'latest';
     const candidate = `${misePath}/${pick}/opa`;
-    return candidate;
-  } catch {
-    return 'opa';
+    if (existsSync(candidate)) return candidate;
   }
+  // CI (setup-opa) and any non-mise host: fall back to PATH `opa`.
+  // Previously returned the nonexistent `<mise>/latest/opa` here, which made
+  // the engine fail-open on GitHub runners and broke every deny e2e.
+  return 'opa';
 }
 
 function readdirSafe(path: string): string[] {

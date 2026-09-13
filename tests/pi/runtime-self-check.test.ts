@@ -23,8 +23,9 @@ describe('Layer A4 — runtime self-check', () => {
 
   it('runSelfCheck returns { ok: false } when hook not registered', async () => {
     mod = await import(MODULE_PATH);
-    // Reset any prior state — call without loading extension first.
-    // Use dynamic re-import to get fresh module state if possible.
+    // Reset any prior state — bun's module cache persists module-level flags
+    // across tests in the same file, so a prior load marks the hook registered.
+    mod.__resetHookRegistrationForTest();
     const result = await mod.runSelfCheck();
     expect(result).toBeDefined();
     expect(result.ok).toBe(false);
