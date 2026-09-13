@@ -1,7 +1,7 @@
 # Ban Shallow Heavy Scan
 
 > Plan ID: `ban-shallow-heavy-scan`
-> Created: 2026-09-09 · Last reconciled: 2026-09-09
+> Created: 2026-09-09 · Last reconciled: 2026-09-13
 > Working Status: done (2026-09-13 — verifier round-1 fixes applied; suite 764 pass / 0 fail)
 > Deployment: dev:done (2026-09-13) - staging:not-in-goal-scope - prod:done (2026-09-13, ~/.pi/agent/npm/node_modules/pi-opa-net=0.7.0, probes in flow/findings/2026-09-13-dev-stage-deploy-proof/prod-deploy.md)
 > Branch: test/bhd-195-red-home-wide-find-grep
