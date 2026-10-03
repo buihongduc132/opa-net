@@ -879,27 +879,35 @@ deny[msg] if {
     msg := "Renaming branches via git branch -m/--move is blocked in protected worktrees."
 }
 
+# Helper: check if ref token refers to HEAD (literal HEAD or @ shorthand) (V5, OT-5)
+is_head_ref(arg) if {
+    arg == "HEAD"
+}
+is_head_ref(arg) if {
+    arg == "@"
+}
+
 # Non-flag args in input.args
 symbolic_ref_non_flags := [arg | arg := input.args[_]; not startswith(arg, "-")]
 
-# Helper: check if symbolic-ref mutates HEAD (E8). Read queries (e.g. `git symbolic-ref HEAD` or `--short HEAD`) are allowed.
+# Helper: check if symbolic-ref mutates HEAD (E8, V5). Read queries (e.g. `git symbolic-ref HEAD`, `@`, `--short @`) are allowed.
 symbolic_ref_mutates_head if {
     some arg in input.args
-    arg == "HEAD"
+    is_head_ref(arg)
     has_any_arg(input.args, ["-d", "--delete"])
 }
 
 symbolic_ref_mutates_head if {
     some arg in input.args
-    arg == "HEAD"
+    is_head_ref(arg)
     not has_any_arg(input.args, ["-m"])
     some other in symbolic_ref_non_flags
-    other != "HEAD"
+    not is_head_ref(other)
 }
 
 symbolic_ref_mutates_head if {
     some arg in input.args
-    arg == "HEAD"
+    is_head_ref(arg)
     has_any_arg(input.args, ["-m"])
     count(symbolic_ref_non_flags) >= 3
 }
@@ -913,15 +921,15 @@ deny[msg] if {
     msg := "Modifying HEAD via git symbolic-ref is blocked in protected worktrees."
 }
 
-# Helper: check if update-ref targets branch refs or HEAD (E9)
+# Helper: check if update-ref targets branch refs or HEAD (E9, V5, G24)
 update_ref_targets_branch if {
     some arg in input.args
-    startswith(arg, "refs/heads")
+    startswith(arg, "refs/heads/")
 }
 
 update_ref_targets_branch if {
     some arg in input.args
-    arg == "HEAD"
+    is_head_ref(arg)
 }
 
 # Deny git update-ref for branch refs in protected worktree (E9).

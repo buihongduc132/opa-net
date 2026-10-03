@@ -50,4 +50,32 @@ describe('Bypass Fixes E2E (V1–V6 + OT)', () => {
       expect(res.record.decision).toBe('allow');
     });
   });
+
+  describe('V5: treat @ as HEAD in symbolic-ref and update-ref', () => {
+    it('denies mutating HEAD via git symbolic-ref @ in protected worktree', () => {
+      const res = runPiOpaNet('git symbolic-ref @ refs/heads/feature-evil');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-symbolic-ref-head');
+    });
+
+    it('allows read-only git symbolic-ref @ query', () => {
+      const res = runPiOpaNet('git symbolic-ref @');
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+
+    it('allows read-only git symbolic-ref --short @ query', () => {
+      const res = runPiOpaNet('git symbolic-ref --short @');
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+
+    it('denies git update-ref @ in protected worktree', () => {
+      const res = runPiOpaNet('git update-ref @ 1234567890abcdef1234567890abcdef12345678');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-update-ref-branch');
+    });
+  });
 });
