@@ -72,4 +72,54 @@ describe('classifyCheckoutTarget', () => {
       });
     });
   });
+
+  describe('E3, E4, E5, E6 with real git repo cwd', () => {
+    const { mkdtempSync, rmSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
+    const { tmpdir } = require('node:os') as typeof import('node:os');
+    const { join } = require('node:path') as typeof import('node:path');
+    const { execSync } = require('node:child_process') as typeof import('node:child_process');
+
+    let repoDir: string;
+    let initialCommitSha: string;
+
+    // Create a real git fixture
+    const tmp = mkdtempSync(join(tmpdir(), 'checkout-target-test-'));
+    repoDir = tmp;
+    execSync('git init -b main', { cwd: repoDir, stdio: 'ignore' });
+    execSync('git config user.email test@test.com', { cwd: repoDir, stdio: 'ignore' });
+    execSync('git config user.name test', { cwd: repoDir, stdio: 'ignore' });
+    writeFileSync(join(repoDir, 'init.txt'), 'hello');
+    execSync('git -c core.hooksPath=/dev/null add init.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init', { cwd: repoDir, stdio: 'ignore' });
+    initialCommitSha = execSync('git rev-parse HEAD', { cwd: repoDir, encoding: 'utf8' }).trim();
+    execSync('git branch local-feat', { cwd: repoDir, stdio: 'ignore' });
+
+    it('E3: checkout -b <new> → kind branch (even when <new> does not exist yet)', () => {
+      const res = classifyCheckoutTarget(['-b', 'brand-new-branch'], repoDir);
+      expect(res).toEqual({ kind: 'branch', name: 'brand-new-branch' });
+    });
+
+    it('E4: checkout origin/<x> (no local branch) → kind branch name <x>', () => {
+      const res = classifyCheckoutTarget(['origin/remote-only-branch'], repoDir);
+      expect(res).toEqual({ kind: 'branch', name: 'remote-only-branch' });
+    });
+
+    it('E5: checkout <sha> / --detach → kind detached', () => {
+      const resSha = classifyCheckoutTarget([initialCommitSha], repoDir);
+      expect(resSha).toEqual({ kind: 'detached' });
+
+      const resShortSha = classifyCheckoutTarget([initialCommitSha.slice(0, 7)], repoDir);
+      expect(resShortSha).toEqual({ kind: 'detached' });
+
+      const resDetach = classifyCheckoutTarget(['--detach', 'local-feat'], repoDir);
+      expect(resDetach).toEqual({ kind: 'detached' });
+    });
+
+    it('E6: switch -c <new> → kind branch (even when <new> does not exist yet)', () => {
+      const res = classifyCheckoutTarget(['-c', 'brand-new-switch-branch'], repoDir);
+      expect(res).toEqual({ kind: 'branch', name: 'brand-new-switch-branch' });
+
+      const resCapC = classifyCheckoutTarget(['-C', 'force-created-branch'], repoDir);
+      expect(resCapC).toEqual({ kind: 'branch', name: 'force-created-branch' });
+    });
+  });
 });

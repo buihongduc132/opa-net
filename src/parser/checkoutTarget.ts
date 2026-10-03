@@ -84,6 +84,36 @@ export function classifyCheckoutTarget(
     return { kind: 'file-restore' };
   }
 
+  // 1. Detect branch creation flags (-b, -B, -c, -C, --orphan, --create, --force-create).
+  // These create AND switch to the branch in a single command (E3, E6).
+  const CREATE_FLAGS = ['-b', '-B', '-c', '-C', '--orphan', '--create', '--force-create'];
+  for (let idx = 0; idx < args.length; idx++) {
+    const a = args[idx];
+    if (CREATE_FLAGS.includes(a)) {
+      if (idx + 1 < args.length && !args[idx + 1].startsWith('-')) {
+        return { kind: 'branch', name: args[idx + 1] };
+      }
+    }
+    for (const flag of CREATE_FLAGS) {
+      if (a.startsWith(`${flag}=`)) {
+        const val = a.slice(flag.length + 1);
+        if (val) return { kind: 'branch', name: val };
+      }
+    }
+    // Short flag attached form: -bfoo, -cfoo
+    for (const flag of ['-b', '-B', '-c', '-C']) {
+      if (a.startsWith(flag) && a.length > 2 && !a.startsWith('--') && !a.includes('=')) {
+        const val = a.slice(2);
+        if (val) return { kind: 'branch', name: val };
+      }
+    }
+  }
+
+  // 2. Detached HEAD intent via flags.
+  if (args.some((a) => a === '--detach' || a === '-d')) {
+    return { kind: 'detached' };
+  }
+
   // Find first positional (skip flags and their values).
   let i = 0;
   while (i < args.length) {
@@ -156,15 +186,21 @@ function classifyPositional(
   }
 
   // Normalize origin/feature → feature (strip remote prefix for local branch lookup).
-  // Only strip if the part after `/` could be a local branch.
   let candidate = token;
+  let isRemote = false;
   if (token.includes('/')) {
     const parts = token.split('/');
     // Strip leading origin/, upstream/, etc.
     const knownRemotes = ['origin', 'upstream', 'github', 'gerrit'];
     if (knownRemotes.includes(parts[0])) {
       candidate = parts.slice(1).join('/');
+      isRemote = true;
     }
+  }
+
+  // If specified as remote branch (e.g. origin/feature), classify as branch even if not yet local (E4).
+  if (isRemote) {
+    return { kind: 'branch', name: candidate };
   }
 
   // Resolve via git rev-parse refs/heads/<X>.
@@ -177,9 +213,27 @@ function classifyPositional(
       });
       return { kind: 'branch', name: candidate };
     } catch {
-      // Not a local branch ref → commit-ish.
-      return { kind: 'commit-ish' };
+      // Not a local branch ref. Check if it resolves as a commit-ish (detached HEAD, E5).
+      try {
+        execFileSync('git', ['rev-parse', '--verify', `${candidate}^{commit}`], {
+          cwd,
+          stdio: ['ignore', 'ignore', 'ignore'],
+          timeout: 250,
+        });
+        return { kind: 'detached' };
+      } catch {
+        // Fall back to pattern check or commit-ish.
+        if (/^[0-9a-f]{7,40}$/i.test(candidate) || /^HEAD(~|\^|\b)/.test(candidate)) {
+          return { kind: 'detached' };
+        }
+        return { kind: 'commit-ish' };
+      }
     }
+  }
+
+  // No cwd: check if candidate looks like a commit SHA / detached target
+  if (/^[0-9a-f]{7,40}$/i.test(candidate) || /^HEAD(~|\^|\b)/.test(candidate)) {
+    return { kind: 'detached' };
   }
 
   // No cwd — assume branch-like (fail-open, let downstream rule decide).
