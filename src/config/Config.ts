@@ -39,7 +39,7 @@ export interface EngineConfig {
   readonly unlockSaltPath?: string;
   /** Agent ID for unlock audit metadata (PIOPANET_AGENT_ID). */
   readonly unlockAgentId?: string;
-  /** Allowed branches for branch-target-allowlist rule (LD1). Default: dev,staging,main,master. */
+  /** Allowed branches for branch-target-allowlist rule (LD1). Default: dev,main,staging,test,stag,master. */
   readonly allowedBranches?: readonly string[];
   /** Allowed prefixes for worktree-path-allowlist rule (LD3). Default: .worktrees,worktrees,~/.config/superpowers/worktrees. */
   readonly worktreeAllowedDirs?: readonly string[];
@@ -129,7 +129,7 @@ export function configFromEnv(policyPath: string): EngineConfig {
 /** Parse PIOPANET_ALLOWED_BRANCHES. Default: dev,staging,main,master. Empty → []. */
 export function parseAllowedBranches(envValue?: string): string[] {
   if (envValue === undefined) {
-    return ['dev', 'staging', 'main', 'master'];
+    return ['dev', 'main', 'staging', 'test', 'stag', 'master'];
   }
   return envValue
     .split(',')

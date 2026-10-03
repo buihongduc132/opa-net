@@ -770,7 +770,7 @@ deny[msg] if {
 # ──────────────────────────────────────────────────────────────────
 
 # Default allowed branches if data.config.allowed_branches is absent.
-default_branches := {"dev", "staging", "main", "master"}
+default_branches := {"dev", "main", "staging", "test", "stag", "master"}
 
 allowed_branches := branches if {
     branches := data.config.allowed_branches

@@ -126,16 +126,16 @@ export class RepoSignals implements SignalCollector {
           const family = siblings
             .filter((s) => {
               if (s === name) return true;
-              if (s.startsWith(name + '-') || s.startsWith(name + '_') || s.startsWith(name + '.'))
+              if (s.startsWith(`${name}-`) || s.startsWith(`${name}_`) || s.startsWith(`${name}.`))
                 return true;
-              if (name.startsWith(s + '-') || name.startsWith(s + '_') || name.startsWith(s + '.'))
+              if (name.startsWith(`${s}-`) || name.startsWith(`${s}_`) || name.startsWith(`${s}.`))
                 return true;
               if (remoteRepoName) {
                 if (
                   s === remoteRepoName ||
-                  s.startsWith(remoteRepoName + '-') ||
-                  s.startsWith(remoteRepoName + '_') ||
-                  s.startsWith(remoteRepoName + '.')
+                  s.startsWith(`${remoteRepoName}-`) ||
+                  s.startsWith(`${remoteRepoName}_`) ||
+                  s.startsWith(`${remoteRepoName}.`)
                 ) {
                   return true;
                 }

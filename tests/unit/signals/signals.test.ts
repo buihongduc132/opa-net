@@ -112,7 +112,10 @@ describe('RepoSignals', () => {
     execSyncRaw('git config user.email test@test.com', { cwd: mainDir, stdio: 'ignore' });
     execSyncRaw('git config user.name test', { cwd: mainDir, stdio: 'ignore' });
     writeFileSync(join(mainDir, 'file.txt'), 'init');
-    execSyncRaw('git -c core.hooksPath=/dev/null add file.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init', { cwd: mainDir, stdio: 'ignore' });
+    execSyncRaw(
+      'git -c core.hooksPath=/dev/null add file.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init',
+      { cwd: mainDir, stdio: 'ignore' },
+    );
 
     const wtDir = join(tmp, 'repo-wt');
     execSyncRaw(`git worktree add ${wtDir} -b wt-branch`, { cwd: mainDir, stdio: 'ignore' });

@@ -34,25 +34,45 @@ export class WorktreeSignals implements SignalCollector {
 
   collect(ctx: SignalContext): WorktreeSignal {
     if (ctx.parsed.program !== 'git' || ctx.parsed.subcommand !== 'worktree') {
-      return { available: false, target_path: null, target_branch: null, worktree_subcommand: null };
+      return {
+        available: false,
+        target_path: null,
+        target_branch: null,
+        worktree_subcommand: null,
+      };
     }
 
     const args = ctx.parsed.args;
     if (args.length === 0) {
-      return { available: false, target_path: null, target_branch: null, worktree_subcommand: null };
+      return {
+        available: false,
+        target_path: null,
+        target_branch: null,
+        worktree_subcommand: null,
+      };
     }
 
     // First positional is the worktree subcommand.
     const wtSubcommand = args[0];
     if (!WT_PATH_SUBCOMMANDS.has(wtSubcommand)) {
-      return { available: false, target_path: null, target_branch: null, worktree_subcommand: wtSubcommand };
+      return {
+        available: false,
+        target_path: null,
+        target_branch: null,
+        worktree_subcommand: wtSubcommand,
+      };
     }
 
     // Parse remaining args to find positionals.
     const positionals = parsePositionals(args.slice(1));
 
     if (positionals.length === 0) {
-      return { available: false, target_path: null, target_branch: null, worktree_subcommand: wtSubcommand };
+      return {
+        available: false,
+        target_path: null,
+        target_branch: null,
+        worktree_subcommand: wtSubcommand,
+      };
     }
 
     // Path extraction depends on subcommand:

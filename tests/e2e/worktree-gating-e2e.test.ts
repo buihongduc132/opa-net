@@ -92,6 +92,9 @@ beforeAll(() => {
   // Create allowed branches.
   execSync('git branch dev', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   execSync('git branch staging', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync('git branch test', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync('git branch stag', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync('git branch master', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   // Create non-allowed branch.
   execSync('git branch feature-evil', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
 
@@ -317,7 +320,10 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
   it('(i2) young worktree (< 3 days): checkout non-allowed branch → DENY (R2)', () => {
     const youngWt = join(allowedDir, 'sub-wt-young');
     try {
-      execSync(`git worktree add ${youngWt} -b young-branch`, { cwd: fixtureRepo, stdio: 'ignore' });
+      execSync(`git worktree add ${youngWt} -b young-branch`, {
+        cwd: fixtureRepo,
+        stdio: 'ignore',
+      });
     } catch {
       // may already exist
     }
@@ -339,7 +345,10 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
   });
 
   it('(n) E5: checkout detached HEAD / sha in protected worktree → DENY', () => {
-    const headSha = execSyncRaw('git rev-parse HEAD', { cwd: fixtureRepo, encoding: 'utf8' }).trim();
+    const headSha = execSyncRaw('git rev-parse HEAD', {
+      cwd: fixtureRepo,
+      encoding: 'utf8',
+    }).trim();
     const resultSha = runCli(`git checkout ${headSha}`, fixtureRepo);
     expect(resultSha.exitCode).toBe(2);
     expect(resultSha.record?.decision).toBe('deny');
@@ -367,7 +376,10 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
   });
 
   it('(q) E9: git update-ref refs/heads in protected worktree → DENY', () => {
-    const headSha = execSyncRaw('git rev-parse HEAD', { cwd: fixtureRepo, encoding: 'utf8' }).trim();
+    const headSha = execSyncRaw('git rev-parse HEAD', {
+      cwd: fixtureRepo,
+      encoding: 'utf8',
+    }).trim();
     const result = runCli(`git update-ref refs/heads/main ${headSha}`, fixtureRepo);
     expect(result.exitCode).toBe(2);
     expect(result.record?.decision).toBe('deny');
@@ -428,15 +440,15 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     execSync('git checkout main', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   });
 
-  it('(l) checkout ALLOWED branches dev and staging from main worktree → ALLOW', () => {
-    for (const branch of ['dev', 'staging'] as const) {
+  it('(l) checkout ALLOWED branches dev, staging, test, stag, master from main worktree → ALLOW', () => {
+    for (const branch of ['dev', 'staging', 'test', 'stag', 'master'] as const) {
       // Ensure deterministic start: HEAD on main, then checkout an allowed branch.
       execSync('git checkout main', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
 
       const result = runCli(`git checkout ${branch}`, fixtureRepo);
       writeAudit(`l-checkout-${branch}-allow`, result, `git checkout ${branch} (from main)`);
 
-      // 'dev' and 'staging' are in the default allowlist — must be ALLOWED.
+      // 'dev', 'staging', 'test', 'stag', 'master' are in the default allowlist — must be ALLOWED.
       expect(result.exitCode).toBe(0);
       expect(result.record?.decision).toBe('allow');
       const reasons = JSON.stringify(result.record?.reasons ?? '');

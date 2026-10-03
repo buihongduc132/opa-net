@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { classifyCheckoutTarget } from '../../../src/parser/checkoutTarget.ts';
 
 describe('classifyCheckoutTarget', () => {
@@ -79,18 +79,20 @@ describe('classifyCheckoutTarget', () => {
     const { join } = require('node:path') as typeof import('node:path');
     const { execSync } = require('node:child_process') as typeof import('node:child_process');
 
-    let repoDir: string;
-    let initialCommitSha: string;
-
     // Create a real git fixture
-    const tmp = mkdtempSync(join(tmpdir(), 'checkout-target-test-'));
-    repoDir = tmp;
+    const repoDir = mkdtempSync(join(tmpdir(), 'checkout-target-test-'));
     execSync('git init -b main', { cwd: repoDir, stdio: 'ignore' });
     execSync('git config user.email test@test.com', { cwd: repoDir, stdio: 'ignore' });
     execSync('git config user.name test', { cwd: repoDir, stdio: 'ignore' });
     writeFileSync(join(repoDir, 'init.txt'), 'hello');
-    execSync('git -c core.hooksPath=/dev/null add init.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init', { cwd: repoDir, stdio: 'ignore' });
-    initialCommitSha = execSync('git rev-parse HEAD', { cwd: repoDir, encoding: 'utf8' }).trim();
+    execSync(
+      'git -c core.hooksPath=/dev/null add init.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init',
+      { cwd: repoDir, stdio: 'ignore' },
+    );
+    const initialCommitSha = execSync('git rev-parse HEAD', {
+      cwd: repoDir,
+      encoding: 'utf8',
+    }).trim();
     execSync('git branch local-feat', { cwd: repoDir, stdio: 'ignore' });
 
     it('E3: checkout -b <new> → kind branch (even when <new> does not exist yet)', () => {
@@ -120,6 +122,12 @@ describe('classifyCheckoutTarget', () => {
 
       const resCapC = classifyCheckoutTarget(['-C', 'force-created-branch'], repoDir);
       expect(resCapC).toEqual({ kind: 'branch', name: 'force-created-branch' });
+    });
+
+    afterAll(() => {
+      if (repoDir) {
+        rmSync(repoDir, { recursive: true, force: true });
+      }
     });
   });
 });
