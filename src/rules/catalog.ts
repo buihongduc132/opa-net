@@ -100,6 +100,22 @@ export const RULES: readonly RuleMeta[] = [
     family: 'git',
     message: 'git rebase --continue/--skip/--abort should be run only with explicit approval.',
   },
+  {
+    ruleId: 'block-git-checkout-detached',
+    family: 'git',
+    message: 'git checkout/switch in detached HEAD mode is blocked in protected worktrees.',
+    suggestions: ['git checkout <allowed-branch>', 'git worktree add .worktrees/<name> <commit>'],
+  },
+  {
+    ruleId: 'block-git-symbolic-ref-head',
+    family: 'git',
+    message: 'Modifying HEAD via git symbolic-ref is blocked in protected worktrees.',
+  },
+  {
+    ruleId: 'block-git-update-ref-branch',
+    family: 'git',
+    message: 'Updating branch refs directly via git update-ref is blocked in protected worktrees.',
+  },
   // ── GROUP B: docker subcommands ──
   {
     ruleId: 'block-docker-stop',

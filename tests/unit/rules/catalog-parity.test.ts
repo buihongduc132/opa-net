@@ -171,4 +171,26 @@ describe('rule catalog ↔ rego parity', () => {
       expect(byId.get('block-shallow-heavy-scan')?.family).toBe('scan');
     });
   });
+
+  // ── branch gate rule parity (GROUP G / F4) ──
+  describe('branch gate rule parity', () => {
+    const REQUIRED_RULE_IDS = [
+      'block-git-checkout-detached',
+      'block-git-symbolic-ref-head',
+      'block-git-update-ref-branch',
+    ];
+
+    it('catalog contains all branch gate rule IDs', () => {
+      const catalogIds = new Set(RULES.map((r) => r.ruleId));
+      const missing = REQUIRED_RULE_IDS.filter((id) => !catalogIds.has(id));
+      expect(missing, `catalog is missing rule IDs: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('each branch gate rule maps to family git', () => {
+      const byId = new Map(RULES.map((r) => [r.ruleId, r]));
+      for (const id of REQUIRED_RULE_IDS) {
+        expect(byId.get(id)?.family).toBe('git');
+      }
+    });
+  });
 });

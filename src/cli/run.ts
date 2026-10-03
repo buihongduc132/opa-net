@@ -244,7 +244,7 @@ function buildDecision(
 }
 
 function resolveRaw(opts: CliOptions): string {
-  if (opts.command !== undefined && opts.command.length > 0) {
+  if (opts.command !== undefined) {
     return opts.command;
   }
   // Read stdin synchronously when no command arg given.
@@ -319,6 +319,16 @@ function collectSignals(
       target_branch: target.kind === 'branch' ? target.name : null,
       target_kind: target.kind,
     };
+  } else if (parsed.subcommand === 'worktree' && parsed.args[0] === 'add') {
+    const wtSignal = signals.worktree as { target_branch?: string | null } | undefined;
+    if (wtSignal?.target_branch) {
+      (signals as Record<string, Record<string, unknown>>).git = {
+        available: true,
+        current_branch: null,
+        target_branch: wtSignal.target_branch,
+        target_kind: 'branch',
+      };
+    }
   }
 
   // Canonicalize worktree target path (LD6) and add to signals.

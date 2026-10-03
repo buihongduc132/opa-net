@@ -92,6 +92,9 @@ beforeAll(() => {
   // Create allowed branches.
   execSync('git branch dev', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   execSync('git branch staging', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync('git branch test', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync('git branch stag', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
+  execSync('git branch master', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   // Create non-allowed branch.
   execSync('git branch feature-evil', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
 
@@ -273,7 +276,7 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     expect(result.record?.decision).toBe('deny');
   });
 
-  it('(i) sub-worktree exemption: checkout non-allowed from linked worktree → ALLOW', () => {
+  it('(i) sub-worktree exemption: checkout non-allowed from linked worktree older than 3d → ALLOW', () => {
     // Create a linked worktree under allowed dir.
     const subWt = join(allowedDir, 'sub-wt-exempt');
     try {
@@ -282,8 +285,23 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
       // may already exist
     }
 
-    // From within the linked worktree, checkout to a non-allowed branch should ALLOW
-    // because signals.repo.is_main_worktree should be false.
+    // Backdate worktree to >3 days old so R2 treats it as an exempt sub-worktree.
+    const fourDaysAgoSec = Math.floor(Date.now() / 1000) - 4 * 86400;
+    const reflogPath = join(fixtureRepo, '.git', 'worktrees', 'sub-wt-exempt', 'logs', 'HEAD');
+    if (existsSync(reflogPath)) {
+      const line = `0000000000000000000000000000000000000000 aaaaaaaa test <test@test.com> ${fourDaysAgoSec} +0000\tbranch: Created\n`;
+      writeFileSync(reflogPath, line);
+    }
+    const fourDaysAgo = new Date(Date.now() - 4 * 86400 * 1000);
+    const { utimesSync } = require('node:fs') as typeof import('node:fs');
+    try {
+      utimesSync(subWt, fourDaysAgo, fourDaysAgo);
+    } catch {
+      // best effort
+    }
+
+    // From within an older linked worktree, checkout to a non-allowed branch should ALLOW
+    // because signals.repo.protected should be false.
     const result = runCli('git checkout feature-evil', subWt);
     writeAudit('i-sub-worktree-exempt', result, 'git checkout feature-evil (from linked worktree)');
 
@@ -291,16 +309,81 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     const reasons = JSON.stringify(result.record?.reasons ?? '');
     expect(reasons).not.toContain('branch-target-allowlist');
 
-    // Verify signal shows is_main_worktree=false.
-    const signals = JSON.stringify(result.record?.signals ?? '');
-    expect(signals).toContain('is_main_worktree');
-
     // Clean up the worktree.
     try {
       execSync(`git worktree remove ${subWt} --force`, { cwd: fixtureRepo, stdio: 'ignore' });
     } catch {
       // best effort
     }
+  });
+
+  it('(i2) young worktree (< 3 days): checkout non-allowed branch → DENY (R2)', () => {
+    const youngWt = join(allowedDir, 'sub-wt-young');
+    try {
+      execSync(`git worktree add ${youngWt} -b young-branch`, {
+        cwd: fixtureRepo,
+        stdio: 'ignore',
+      });
+    } catch {
+      // may already exist
+    }
+
+    try {
+      // Fresh worktree age < 3 days → protected → DENY
+      const result = runCli('git checkout feature-evil', youngWt);
+      expect(result.exitCode).toBe(2);
+      expect(result.record?.decision).toBe('deny');
+      const reasons = JSON.stringify(result.record?.reasons ?? '');
+      expect(reasons).toContain('branch-target-allowlist');
+    } finally {
+      try {
+        execSync(`git worktree remove ${youngWt} --force`, { cwd: fixtureRepo, stdio: 'ignore' });
+      } catch {
+        // best effort
+      }
+    }
+  });
+
+  it('(n) E5: checkout detached HEAD / sha in protected worktree → DENY', () => {
+    const headSha = execSyncRaw('git rev-parse HEAD', {
+      cwd: fixtureRepo,
+      encoding: 'utf8',
+    }).trim();
+    const resultSha = runCli(`git checkout ${headSha}`, fixtureRepo);
+    expect(resultSha.exitCode).toBe(2);
+    expect(resultSha.record?.decision).toBe('deny');
+    expect(JSON.stringify(resultSha.record?.reasons ?? '')).toContain('detached HEAD');
+
+    const resultDetach = runCli('git checkout --detach main', fixtureRepo);
+    expect(resultDetach.exitCode).toBe(2);
+    expect(resultDetach.record?.decision).toBe('deny');
+    expect(JSON.stringify(resultDetach.record?.reasons ?? '')).toContain('detached HEAD');
+  });
+
+  it('(o) E7: git worktree add with non-allowed branch in protected worktree → DENY', () => {
+    const newWt = join(allowedDir, 'test-wt-non-allowed');
+    const result = runCli(`git worktree add ${newWt} feature-evil`, fixtureRepo);
+    expect(result.exitCode).toBe(2);
+    expect(result.record?.decision).toBe('deny');
+    expect(JSON.stringify(result.record?.reasons ?? '')).toContain('branch-target-allowlist');
+  });
+
+  it('(p) E8: git symbolic-ref HEAD in protected worktree → DENY', () => {
+    const result = runCli('git symbolic-ref HEAD refs/heads/feature-evil', fixtureRepo);
+    expect(result.exitCode).toBe(2);
+    expect(result.record?.decision).toBe('deny');
+    expect(JSON.stringify(result.record?.reasons ?? '')).toContain('symbolic-ref');
+  });
+
+  it('(q) E9: git update-ref refs/heads in protected worktree → DENY', () => {
+    const headSha = execSyncRaw('git rev-parse HEAD', {
+      cwd: fixtureRepo,
+      encoding: 'utf8',
+    }).trim();
+    const result = runCli(`git update-ref refs/heads/main ${headSha}`, fixtureRepo);
+    expect(result.exitCode).toBe(2);
+    expect(result.record?.decision).toBe('deny');
+    expect(JSON.stringify(result.record?.reasons ?? '')).toContain('update-ref');
   });
 
   it('(j) git -C <other-repo> worktree add → cwd propagated to signals (LD8)', () => {
@@ -357,15 +440,15 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     execSync('git checkout main', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
   });
 
-  it('(l) checkout ALLOWED branches dev and staging from main worktree → ALLOW', () => {
-    for (const branch of ['dev', 'staging'] as const) {
+  it('(l) checkout ALLOWED branches dev, staging, test, stag, master from main worktree → ALLOW', () => {
+    for (const branch of ['dev', 'staging', 'test', 'stag', 'master'] as const) {
       // Ensure deterministic start: HEAD on main, then checkout an allowed branch.
       execSync('git checkout main', { cwd: fixtureRepo, stdio: 'ignore', timeout: 5000 });
 
       const result = runCli(`git checkout ${branch}`, fixtureRepo);
       writeAudit(`l-checkout-${branch}-allow`, result, `git checkout ${branch} (from main)`);
 
-      // 'dev' and 'staging' are in the default allowlist — must be ALLOWED.
+      // 'dev', 'staging', 'test', 'stag', 'master' are in the default allowlist — must be ALLOWED.
       expect(result.exitCode).toBe(0);
       expect(result.record?.decision).toBe('allow');
       const reasons = JSON.stringify(result.record?.reasons ?? '');

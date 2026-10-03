@@ -3,7 +3,14 @@ import { parseAllowedBranches, parseWorktreeAllowedDirs } from '../../../src/con
 
 describe('parseAllowedBranches', () => {
   it('returns default when env is undefined', () => {
-    expect(parseAllowedBranches(undefined)).toEqual(['dev', 'staging', 'main', 'master']);
+    expect(parseAllowedBranches(undefined)).toEqual([
+      'dev',
+      'main',
+      'staging',
+      'test',
+      'stag',
+      'master',
+    ]);
   });
 
   it('returns empty array for empty string', () => {
