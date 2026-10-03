@@ -1,0 +1,12 @@
+[Unit]
+Description=Run opa-net reflog branch drift watchdog every 2 minutes
+Documentation=https://github.com/buihongduc132/opa-net
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=2m
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

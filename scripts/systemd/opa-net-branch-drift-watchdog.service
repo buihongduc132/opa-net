@@ -1,0 +1,16 @@
+[Unit]
+Description=opa-net reflog watchdog — monitor branch drift in protected directories
+Documentation=https://github.com/buihongduc132/opa-net
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bhd/Documents/Projects/bhd/opa-net
+ExecStart=/usr/bin/python3 /home/bhd/Documents/Projects/bhd/opa-net/scripts/branch_drift_watchdog.py --once
+Environment=HOME=/home/bhd
+Environment=PATH=/home/bhd/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal

@@ -93,6 +93,11 @@ bun run smoke
 pi-opa-net eval "git stash pop" --json
 pi-opa-net unlock-key block-git-stash-mutations
 pi-opa-net unlock-key --list
+
+# Watchdog (S8 reflog monitor)
+python3 scripts/branch_drift_watchdog.py --once
+python3 scripts/branch_drift_watchdog.py --retro 7
+systemctl --user status opa-net-branch-drift-watchdog.timer
 ```
 
 ## Key Files
@@ -107,6 +112,8 @@ pi-opa-net unlock-key --list
 | `src/audit/AuditSink.ts` | Audit sink interface (NoOpSink default) |
 | `policy/safety.rego` | OPA/Rego policy (42 rules) |
 | `schemas/decision-output.v1.json` | Output schema (additive, stays v1) |
+| `scripts/branch_drift_watchdog.py` | S8 reflog watchdog for branch drift in protected dirs |
+| `scripts/systemd/` | User systemd service + timer (`opa-net-branch-drift-watchdog`) |
 
 ## Locked Decisions
 
