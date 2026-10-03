@@ -941,6 +941,15 @@ deny[msg] if {
     msg := "Updating branch refs directly via git update-ref is blocked in protected worktrees."
 }
 
+# Deny git update-ref --stdin in protected worktree (V6).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "update-ref"
+    repo_available_protected
+    has_any_arg(input.args, ["--stdin"])
+    msg := "git update-ref --stdin is blocked in protected worktrees."
+}
+
 # ──────────────────────────────────────────────────────────────────
 # GROUP H — worktree-path-allowlist (LD5, LD6)
 # Deny git worktree add/move/repair when canonicalized path ∉ allowed prefixes.

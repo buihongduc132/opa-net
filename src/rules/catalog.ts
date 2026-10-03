@@ -121,6 +121,11 @@ export const RULES: readonly RuleMeta[] = [
     family: 'git',
     message: 'Updating branch refs directly via git update-ref is blocked in protected worktrees.',
   },
+  {
+    ruleId: 'block-git-update-ref-stdin',
+    family: 'git',
+    message: 'git update-ref --stdin is blocked in protected worktrees.',
+  },
   // ── GROUP B: docker subcommands ──
   {
     ruleId: 'block-docker-stop',

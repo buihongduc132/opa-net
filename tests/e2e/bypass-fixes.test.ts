@@ -78,4 +78,26 @@ describe('Bypass Fixes E2E (V1–V6 + OT)', () => {
       expect(res.record.reasons[0].rule_id).toBe('block-git-update-ref-branch');
     });
   });
+
+  describe('V6: block git update-ref --stdin in protected worktrees', () => {
+    it('denies git update-ref --stdin in protected worktree', () => {
+      const res = runPiOpaNet('git update-ref --stdin');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-update-ref-stdin');
+    });
+
+    it('denies piped printf into git update-ref --stdin in protected worktree', () => {
+      const res = runPiOpaNet("printf 'update refs/heads/main 1234567890abcdef1234567890abcdef12345678\\n' | git update-ref --stdin");
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-update-ref-stdin');
+    });
+
+    it('allows git update-ref --stdin when repo is not protected', () => {
+      const res = runPiOpaNet('git update-ref --stdin', ROOT, { PIOPANET_PROTECT_DAYS: '0' });
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+  });
 });
