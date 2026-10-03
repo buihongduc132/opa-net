@@ -126,6 +126,16 @@ export const RULES: readonly RuleMeta[] = [
     family: 'git',
     message: 'git update-ref --stdin is blocked in protected worktrees.',
   },
+  {
+    ruleId: 'block-git-reflog-expire',
+    family: 'git',
+    message: 'git reflog expire/delete is blocked in protected worktrees to preserve audit history.',
+  },
+  {
+    ruleId: 'block-git-config-logallrefupdates',
+    family: 'git',
+    message: 'Disabling core.logAllRefUpdates is blocked in protected worktrees.',
+  },
   // ── GROUP B: docker subcommands ──
   {
     ruleId: 'block-docker-stop',

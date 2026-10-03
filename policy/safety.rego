@@ -950,6 +950,27 @@ deny[msg] if {
     msg := "git update-ref --stdin is blocked in protected worktrees."
 }
 
+# Deny git reflog expire/delete in protected worktree (OT-6).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "reflog"
+    repo_available_protected
+    has_any_arg(input.args, ["expire", "delete"])
+    msg := "git reflog expire/delete is blocked in protected worktrees to preserve audit history."
+}
+
+# Deny disabling core.logAllRefUpdates in protected worktree (OT-6).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "config"
+    repo_available_protected
+    some arg in input.args
+    lower(arg) == "core.logallrefupdates"
+    some val in input.args
+    has_any_arg([val], ["false", "0", "no", "off", "--unset"])
+    msg := "Disabling core.logAllRefUpdates is blocked in protected worktrees."
+}
+
 # ──────────────────────────────────────────────────────────────────
 # GROUP H — worktree-path-allowlist (LD5, LD6)
 # Deny git worktree add/move/repair when canonicalized path ∉ allowed prefixes.
