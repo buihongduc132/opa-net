@@ -244,7 +244,7 @@ function buildDecision(
 }
 
 function resolveRaw(opts: CliOptions): string {
-  if (opts.command !== undefined && opts.command.length > 0) {
+  if (opts.command !== undefined) {
     return opts.command;
   }
   // Read stdin synchronously when no command arg given.
