@@ -1,0 +1,17 @@
+kind: findings
+description: |
+  Investigation artifacts for opa-net. Each dir = one dated investigation with
+  evidence citations (files, commands, live repro output).
+documents:
+  - dir: 2026-10-03-branch-gate-not-firing
+    title: Why the branch-change gate never fires (ajv fail-open, main-dir spec mismatch, classifier holes)
+  - dir: 2026-09-13-dev-stage-deploy-proof
+    title: Dev-stage deploy proof
+  - dir: 2026-09-09-ban-shallow-heavy-scan
+    title: Ban shallow heavy scan
+  - dir: 2026-08-16-group-j-devops-cli-coverage
+    title: GROUP J DevOps CLI coverage
+  - dir: 2026-08-09-cc-safety-replacement-rule-server
+    title: cc-safety replacement rule server
+  - dir: 2026-07-20-rule-unlock-keys
+    title: Rule unlock keys

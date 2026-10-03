@@ -1,0 +1,13 @@
+kind: plans
+description: |
+  Implementation plans for opa-net gates and deploys. Each plan defines DOD,
+  escape matrix, steps with acceptance, and handoff.
+documents:
+  - file: 2026-10-03-branch-gate-main-dir.md
+    title: Fix branch-change gate (GROUP G) — make it actually fire in main dirs
+  - file: ban-shallow-heavy-scan.md
+    title: Ban shallow heavy scans
+  - file: ban-shallow-heavy-scan-gotcha.md
+    title: Ban shallow heavy scans — gotcha appendix
+  - file: gate-home-wide-find-grep.md
+    title: Home-wide find/grep gate
