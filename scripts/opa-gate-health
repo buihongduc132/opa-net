@@ -21,7 +21,7 @@ STATUS_FILE = "/var/log/opa-gate/health.status"
 AUDIT_LOG = "/var/log/opa-gate/audit.jsonl"
 LOG_CAP_SCRIPT = "/opt/opa-gate/scripts/opa_gate_log_cap.py"
 
-PINNED_RULEBOOK_DIGEST = "f7a6758655d1"
+PINNED_RULEBOOK_DIGEST = "dadd508e0518"
 EXPECTED_RULEBOOK_DIGEST = os.environ.get("OPA_GATE_EXPECTED_DIGEST", PINNED_RULEBOOK_DIGEST)
 
 

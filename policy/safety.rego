@@ -921,6 +921,41 @@ deny[msg] if {
     msg := "Modifying HEAD via git symbolic-ref is blocked in protected worktrees."
 }
 
+# Helper: check if ref token refers to a branch ref (starts with refs/heads/) (G16)
+is_branch_ref(arg) if {
+    startswith(arg, "refs/heads/")
+}
+
+# Helper: check if symbolic-ref mutates a branch ref (G16).
+symbolic_ref_mutates_branch if {
+    some arg in input.args
+    is_branch_ref(arg)
+    has_any_arg(input.args, ["-d", "--delete"])
+}
+
+symbolic_ref_mutates_branch if {
+    some arg in input.args
+    is_branch_ref(arg)
+    not has_any_arg(input.args, ["-m"])
+    count(symbolic_ref_non_flags) >= 2
+}
+
+symbolic_ref_mutates_branch if {
+    some arg in input.args
+    is_branch_ref(arg)
+    has_any_arg(input.args, ["-m"])
+    count(symbolic_ref_non_flags) >= 3
+}
+
+# Deny git symbolic-ref modifying branch refs in protected worktree (G16).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "symbolic-ref"
+    repo_available_protected
+    symbolic_ref_mutates_branch
+    msg := "Modifying branch refs via git symbolic-ref is blocked in protected worktrees."
+}
+
 # Helper: check if update-ref targets branch refs or HEAD (E9, V5, G24)
 update_ref_targets_branch if {
     some arg in input.args
@@ -948,6 +983,22 @@ deny[msg] if {
     repo_available_protected
     has_any_arg(input.args, ["--stdin"])
     msg := "git update-ref --stdin is blocked in protected worktrees."
+}
+
+# Deny git fast-import in protected worktree (G18).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "fast-import"
+    repo_available_protected
+    msg := "git fast-import is blocked in protected worktrees."
+}
+
+# Deny git filter-branch in protected worktree (G18).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "filter-branch"
+    repo_available_protected
+    msg := "git filter-branch is blocked in protected worktrees."
 }
 
 # Deny git reflog expire/delete in protected worktree (OT-6).

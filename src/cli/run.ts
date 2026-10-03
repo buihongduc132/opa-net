@@ -216,8 +216,7 @@ async function evaluatePossiblyCompound(
         });
         break;
       }
-      // If op is || or ;, fall back to baseCwd for subsequent command
-      currentCwd = baseCwd;
+      // If op is || or ;, failed cd leaves cwd unchanged in real bash (keep currentCwd)
       continue;
     }
 

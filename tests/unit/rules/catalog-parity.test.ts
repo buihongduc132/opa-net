@@ -177,7 +177,10 @@ describe('rule catalog ↔ rego parity', () => {
     const REQUIRED_RULE_IDS = [
       'block-git-checkout-detached',
       'block-git-symbolic-ref-head',
+      'block-git-symbolic-ref-branch',
       'block-git-update-ref-branch',
+      'block-git-fast-import',
+      'block-git-filter-branch',
     ];
 
     it('catalog contains all branch gate rule IDs', () => {

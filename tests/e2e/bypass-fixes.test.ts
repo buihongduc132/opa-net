@@ -173,6 +173,22 @@ describe('Bypass Fixes E2E (V1–V6 + OT)', () => {
       expect(res.record.decision).toBe('deny');
       expect(res.record.signals?.repo?.protected).toBe(true);
     });
+
+    it('denies cd into protected repo && cd /nonexistent ; git checkout feature-evil (V4 residual bypass fix)', () => {
+      const res = runPiOpaNet(`cd ${ROOT} && cd /nonexistent ; git checkout feature-evil`, '/tmp');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.signals?.repo?.protected).toBe(true);
+      expect(res.record.reasons[0].message).toContain('branch-target-allowlist');
+    });
+
+    it('denies cd into protected repo && cd /nonexistent || git checkout feature-evil (V4 residual bypass fix)', () => {
+      const res = runPiOpaNet(`cd ${ROOT} && cd /nonexistent || git checkout feature-evil`, '/tmp');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.signals?.repo?.protected).toBe(true);
+      expect(res.record.reasons[0].message).toContain('branch-target-allowlist');
+    });
   });
 
   describe('V2: resolve git aliases before policy evaluation', () => {
@@ -207,6 +223,75 @@ describe('Bypass Fixes E2E (V1–V6 + OT)', () => {
 
     it('allows shell alias when repo is not protected', () => {
       const res = runPiOpaNet('git -c alias.sh="!git checkout feature-evil" sh', ROOT, {
+        PIOPANET_PROTECT_DAYS: '0',
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+  });
+
+  describe('G16: block git symbolic-ref branch ref mutations in protected worktree', () => {
+    it('denies git symbolic-ref refs/heads/foo refs/heads/bar in protected worktree', () => {
+      const res = runPiOpaNet('git symbolic-ref refs/heads/foo refs/heads/bar');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-symbolic-ref-branch');
+    });
+
+    it('denies git symbolic-ref -d refs/heads/foo in protected worktree', () => {
+      const res = runPiOpaNet('git symbolic-ref -d refs/heads/foo');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-symbolic-ref-branch');
+    });
+
+    it('allows read-only git symbolic-ref refs/heads/foo in protected worktree', () => {
+      const res = runPiOpaNet('git symbolic-ref refs/heads/foo');
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+
+    it('allows git symbolic-ref refs/heads/foo refs/heads/bar when repo is not protected', () => {
+      const res = runPiOpaNet('git symbolic-ref refs/heads/foo refs/heads/bar', ROOT, {
+        PIOPANET_PROTECT_DAYS: '0',
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+  });
+
+  describe('G18: block git fast-import and git filter-branch in protected worktree', () => {
+    it('denies git fast-import in protected worktree', () => {
+      const res = runPiOpaNet('git fast-import');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-fast-import');
+    });
+
+    it('denies git filter-branch --force in protected worktree', () => {
+      const res = runPiOpaNet('git filter-branch --force');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-filter-branch');
+    });
+
+    it('denies git filter-branch without flags in protected worktree', () => {
+      const res = runPiOpaNet('git filter-branch');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-filter-branch');
+    });
+
+    it('allows git fast-import when repo is not protected', () => {
+      const res = runPiOpaNet('git fast-import', ROOT, {
+        PIOPANET_PROTECT_DAYS: '0',
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+
+    it('allows git filter-branch when repo is not protected', () => {
+      const res = runPiOpaNet('git filter-branch --force', ROOT, {
         PIOPANET_PROTECT_DAYS: '0',
       });
       expect(res.exitCode).toBe(0);

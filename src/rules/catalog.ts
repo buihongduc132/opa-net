@@ -117,6 +117,11 @@ export const RULES: readonly RuleMeta[] = [
     message: 'Modifying HEAD via git symbolic-ref is blocked in protected worktrees.',
   },
   {
+    ruleId: 'block-git-symbolic-ref-branch',
+    family: 'git',
+    message: 'Modifying branch refs via git symbolic-ref is blocked in protected worktrees.',
+  },
+  {
     ruleId: 'block-git-update-ref-branch',
     family: 'git',
     message: 'Updating branch refs directly via git update-ref is blocked in protected worktrees.',
@@ -125,6 +130,16 @@ export const RULES: readonly RuleMeta[] = [
     ruleId: 'block-git-update-ref-stdin',
     family: 'git',
     message: 'git update-ref --stdin is blocked in protected worktrees.',
+  },
+  {
+    ruleId: 'block-git-fast-import',
+    family: 'git',
+    message: 'git fast-import is blocked in protected worktrees.',
+  },
+  {
+    ruleId: 'block-git-filter-branch',
+    family: 'git',
+    message: 'git filter-branch is blocked in protected worktrees.',
   },
   {
     ruleId: 'block-git-reflog-expire',
