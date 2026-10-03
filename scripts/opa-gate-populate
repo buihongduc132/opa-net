@@ -8,6 +8,7 @@ set -euo pipefail
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
 TARGET_DIR="/opt/opa-gate/bin"
+ENGINE_DIR="/opt/opa-gate/engine"
 SHIM_SRC=""
 STAGING_DIR=""
 ATOMIC=1
@@ -17,6 +18,7 @@ print_usage() {
   echo "Usage: opa-gate-populate [OPTIONS]"
   echo "Options:"
   echo "  --target-dir <dir>    Target shim directory (default: /opt/opa-gate/bin)"
+  echo "  --engine-dir <dir>    Deployed engine directory to root-own (default: /opt/opa-gate/engine)"
   echo "  --shim-src <path>     Path to .opa-gate-shim script"
   echo "  --staging-dir <dir>   Custom staging directory (for atomic swap)"
   echo "  --no-atomic           Populate in-place without atomic swap"
@@ -28,6 +30,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --target-dir)
       TARGET_DIR="$2"
+      shift 2
+      ;;
+    --engine-dir)
+      ENGINE_DIR="$2"
       shift 2
       ;;
     --shim-src)
@@ -81,9 +87,10 @@ fi
 # Ensure audit log directory exists
 if [ "$DRY_RUN" -eq 0 ] && [ "$TARGET_DIR" = "/opt/opa-gate/bin" ]; then
   mkdir -p /var/log/opa-gate 2>/dev/null || sudo mkdir -p /var/log/opa-gate 2>/dev/null || true
-  chmod 1777 /var/log/opa-gate 2>/dev/null || sudo chmod 1777 /var/log/opa-gate 2>/dev/null || true
+  chmod 755 /var/log/opa-gate 2>/dev/null || sudo chmod 755 /var/log/opa-gate 2>/dev/null || true
   touch /var/log/opa-gate/audit.jsonl 2>/dev/null || sudo touch /var/log/opa-gate/audit.jsonl 2>/dev/null || true
-  chmod 666 /var/log/opa-gate/audit.jsonl 2>/dev/null || sudo chmod 666 /var/log/opa-gate/audit.jsonl 2>/dev/null || true
+  chmod 640 /var/log/opa-gate/audit.jsonl 2>/dev/null || sudo chmod 640 /var/log/opa-gate/audit.jsonl 2>/dev/null || true
+  chown root:root /var/log/opa-gate/audit.jsonl 2>/dev/null || sudo chown root:root /var/log/opa-gate/audit.jsonl 2>/dev/null || true
 fi
 
 # Determine working population dir
@@ -161,3 +168,13 @@ if [ "$ATOMIC" -eq 1 ] && [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 echo "opa-gate-populate: populated $COUNT executable shims into $TARGET_DIR"
+
+# Ensure deployed engine copy is root-owned (never preserve bhd)
+if [ "$DRY_RUN" -eq 0 ] && [ -d "$ENGINE_DIR" ]; then
+  chown -R root:root "$ENGINE_DIR" 2>/dev/null || sudo chown -R root:root "$ENGINE_DIR" 2>/dev/null || true
+  chmod -R go-w "$ENGINE_DIR" 2>/dev/null || sudo chmod -R go-w "$ENGINE_DIR" 2>/dev/null || true
+  if [ -f "$ENGINE_DIR/policy/safety.rego" ]; then
+    chmod 644 "$ENGINE_DIR/policy/safety.rego" 2>/dev/null || sudo chmod 644 "$ENGINE_DIR/policy/safety.rego" 2>/dev/null || true
+  fi
+  echo "opa-gate-populate: enforced root:root ownership on engine copy at $ENGINE_DIR"
+fi
