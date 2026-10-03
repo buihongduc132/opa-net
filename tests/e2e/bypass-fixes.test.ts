@@ -174,4 +174,43 @@ describe('Bypass Fixes E2E (V1–V6 + OT)', () => {
       expect(res.record.signals?.repo?.protected).toBe(true);
     });
   });
+
+  describe('V2: resolve git aliases before policy evaluation', () => {
+    it('denies git -c alias.co=checkout co feature-evil in protected worktree', () => {
+      const res = runPiOpaNet('git -c alias.co=checkout co feature-evil');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.input.subcommand).toBe('checkout');
+      expect(res.record.reasons[0].message).toContain('branch-target-allowlist');
+    });
+
+    it('denies multi-word alias expanding to blocked command', () => {
+      const res = runPiOpaNet('git -c alias.evil="checkout feature-evil" evil');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.input.subcommand).toBe('checkout');
+      expect(res.record.reasons[0].message).toContain('branch-target-allowlist');
+    });
+
+    it('denies shell alias (!) in protected worktree', () => {
+      const res = runPiOpaNet('git -c alias.sh="!git checkout feature-evil" sh');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.reasons[0].rule_id).toBe('block-git-shell-alias-protected');
+    });
+
+    it('allows alias resolving to allowed command', () => {
+      const res = runPiOpaNet('git -c alias.co=checkout co dev');
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+
+    it('allows shell alias when repo is not protected', () => {
+      const res = runPiOpaNet('git -c alias.sh="!git checkout feature-evil" sh', ROOT, {
+        PIOPANET_PROTECT_DAYS: '0',
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+  });
 });

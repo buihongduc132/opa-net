@@ -12,6 +12,7 @@ import { classifyCheckoutTarget } from '../parser/checkoutTarget.ts';
 import { resolveCdChange } from '../parser/cwdTracker.ts';
 import type { CommandParser, ParsedCommand } from '../parser/index.ts';
 import { CommandParserCoordinator, programBasename } from '../parser/index.ts';
+import { resolveGitAlias } from '../parser/resolveGitAlias.ts';
 import { splitTopLevelSegmentsWithOps } from '../parser/splitTopLevelSegments.ts';
 import { RULES, RuleRegistry } from '../rules/index.ts';
 import {
@@ -153,10 +154,16 @@ async function evaluatePossiblyCompound(
     // expansions stay intact (`$HOME` → empty arg, `/*` → glob token are the
     // raw-token deny signals in the rego). Rejoining the segment would drop
     // them and silently allow `rm -rf $HOME` / `rm -rf /*`.
-    const parsed = parser.parse(raw);
+    let parsed = parser.parse(raw);
     // LD8: Use parsed.gitCwd (from -C <path>) if present, otherwise baseCwd.
     const effectiveCwd = parsed.gitCwd ?? baseCwd;
-    const signals = collectSignals(parsed, effectiveCwd, raw, config, collectors);
+    let isShellAlias = false;
+    if (parsed.program === 'git' && parsed.subcommand) {
+      const aliasRes = resolveGitAlias(parsed, effectiveCwd, parsed.gitConfigs);
+      parsed = aliasRes.parsed;
+      isShellAlias = Boolean(aliasRes.isShellAlias);
+    }
+    const signals = collectSignals(parsed, effectiveCwd, raw, config, collectors, isShellAlias);
     const engineDecision = await engine.evaluate(parsed, signals);
     return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
   }
@@ -226,14 +233,21 @@ async function evaluatePossiblyCompound(
   }
 
   // All segments allowed — return an allow decision based on the first segment.
-  const firstParsed = parser.parse(items[0]?.segment ?? '');
+  let firstParsed = parser.parse(items[0]?.segment ?? '');
   const firstEffectiveCwd = firstParsed.gitCwd ?? baseCwd;
+  let firstIsShellAlias = false;
+  if (firstParsed.program === 'git' && firstParsed.subcommand) {
+    const aliasRes = resolveGitAlias(firstParsed, firstEffectiveCwd, firstParsed.gitConfigs);
+    firstParsed = aliasRes.parsed;
+    firstIsShellAlias = Boolean(aliasRes.isShellAlias);
+  }
   const firstSignals = collectSignals(
     firstParsed,
     firstEffectiveCwd,
     items[0]?.segment ?? '',
     config,
     collectors,
+    firstIsShellAlias,
   );
   const firstEngineDecision = await engine.evaluate(firstParsed, firstSignals);
   return buildDecision(firstParsed, firstEngineDecision, {
@@ -354,6 +368,7 @@ function collectSignals(
   raw: string,
   config: EngineConfig,
   collectors: readonly import('../signals/types.ts').SignalCollector[],
+  isShellAlias = false,
 ): Signals | undefined {
   // Collect env.home for find/grep so $HOME matching does not bake a username
   // into policy. Git-only collectors fail-open (available:false) for non-git.
@@ -365,7 +380,15 @@ function collectSignals(
   const ctx: SignalContext = { cwd, raw, parsed };
   const signals = collectAll(collectors, ctx);
 
-  if (parsed.subcommand === 'checkout' || parsed.subcommand === 'switch') {
+  if (isShellAlias) {
+    (signals as Record<string, Record<string, unknown>>).git = {
+      available: true,
+      current_branch: null,
+      target_branch: null,
+      target_kind: null,
+      is_shell_alias: true,
+    };
+  } else if (parsed.subcommand === 'checkout' || parsed.subcommand === 'switch') {
     const target = classifyCheckoutTarget(parsed.args, cwd);
     (signals as Record<string, Record<string, unknown>>).git = {
       available: true,

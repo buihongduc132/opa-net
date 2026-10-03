@@ -129,12 +129,18 @@ export const RULES: readonly RuleMeta[] = [
   {
     ruleId: 'block-git-reflog-expire',
     family: 'git',
-    message: 'git reflog expire/delete is blocked in protected worktrees to preserve audit history.',
+    message:
+      'git reflog expire/delete is blocked in protected worktrees to preserve audit history.',
   },
   {
     ruleId: 'block-git-config-logallrefupdates',
     family: 'git',
     message: 'Disabling core.logAllRefUpdates is blocked in protected worktrees.',
+  },
+  {
+    ruleId: 'block-git-shell-alias-protected',
+    family: 'git',
+    message: "Git shell aliases ('!' prefixed) are blocked in protected worktrees.",
   },
   // ── GROUP B: docker subcommands ──
   {

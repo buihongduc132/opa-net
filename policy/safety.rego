@@ -971,6 +971,14 @@ deny[msg] if {
     msg := "Disabling core.logAllRefUpdates is blocked in protected worktrees."
 }
 
+# Deny git shell aliases in protected worktree (G3).
+deny[msg] if {
+    input.program == "git"
+    repo_available_protected
+    input.signals.git.is_shell_alias == true
+    msg := "Git shell aliases ('!' prefixed) are blocked in protected worktrees."
+}
+
 # ──────────────────────────────────────────────────────────────────
 # GROUP H — worktree-path-allowlist (LD5, LD6)
 # Deny git worktree add/move/repair when canonicalized path ∉ allowed prefixes.
