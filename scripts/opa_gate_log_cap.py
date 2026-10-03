@@ -73,6 +73,8 @@ def rotate_log(log_path: str = DEFAULT_LOG_PATH, max_bytes: int = MAX_BYTES, max
             src.seek(0)
             src.truncate(0)
         ensure_log_perms(log_path)
+    except PermissionError:
+        return False
     except Exception as e:
         sys.stderr.write(f"Error truncating {log_path}: {e}\n")
         return False

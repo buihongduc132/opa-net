@@ -582,6 +582,8 @@ def scan_audit_log_for_storms_and_residuals(
 
             new_offset = fp.tell()
             updated_state["audit_offset"] = new_offset
+    except PermissionError:
+        return storm_alerts, residual_alerts, updated_state
     except Exception as e:
         sys.stderr.write(f"Error reading audit log {audit_log_path}: {e}\n")
         return storm_alerts, residual_alerts, updated_state

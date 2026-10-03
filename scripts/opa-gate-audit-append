@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+export OPA_GATE_INTERNAL=1
+AUDIT_LOG="/var/log/opa-gate/audit.jsonl"
+if [ ! -f "$AUDIT_LOG" ]; then
+  umask 027
+  touch "$AUDIT_LOG" 2>/dev/null || true
+  chmod 640 "$AUDIT_LOG" 2>/dev/null || true
+  chown root:root "$AUDIT_LOG" 2>/dev/null || true
+fi
+exec cat >> "$AUDIT_LOG"

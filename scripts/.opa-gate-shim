@@ -91,7 +91,13 @@ if [ "$IS_GATED" -eq 0 ]; then
     if [ ! -f "$AUDIT_LOG" ]; then
       (umask 027 && touch "$AUDIT_LOG" 2>/dev/null && chmod 640 "$AUDIT_LOG" 2>/dev/null && chown root:root "$AUDIT_LOG" 2>/dev/null) || true
     fi
-    printf '{"schema_version":"1.0","decision":"allow","action":"allow","source":"fast-path","summary":"fast-path: %s","input":{"raw":"%s","program":"%s"}}\n' "$NAME" "$NAME $*" "$NAME" >> "$AUDIT_LOG" 2>/dev/null || true
+    if [ -w "$AUDIT_LOG" ]; then
+      { printf '{"schema_version":"1.0","decision":"allow","action":"allow","source":"fast-path","summary":"fast-path: %s","input":{"raw":"%s","program":"%s"}}\n' "$NAME" "$NAME $*" "$NAME" >> "$AUDIT_LOG"; } 2>/dev/null || true
+    elif [ -x "/opt/opa-gate/scripts/opa-gate-audit-append" ]; then
+      { printf '{"schema_version":"1.0","decision":"allow","action":"allow","source":"fast-path","summary":"fast-path: %s","input":{"raw":"%s","program":"%s"}}\n' "$NAME" "$NAME $*" "$NAME" | sudo -n /opt/opa-gate/scripts/opa-gate-audit-append 2>/dev/null; } 2>/dev/null || true
+    else
+      { printf '{"schema_version":"1.0","decision":"allow","action":"allow","source":"fast-path","summary":"fast-path: %s","input":{"raw":"%s","program":"%s"}}\n' "$NAME" "$NAME $*" "$NAME" >> "$AUDIT_LOG"; } 2>/dev/null || true
+    fi
   fi
   PATH="$ORIG_PATH"
   unset OPA_GATE_INTERNAL
@@ -162,7 +168,13 @@ if [ -n "$EVAL_OUT" ] && [ -d "/var/log/opa-gate" ]; then
   if [ ! -f "$AUDIT_LOG" ]; then
     (umask 027 && touch "$AUDIT_LOG" 2>/dev/null && chmod 640 "$AUDIT_LOG" 2>/dev/null && chown root:root "$AUDIT_LOG" 2>/dev/null) || true
   fi
-  echo "$EVAL_OUT" >> "$AUDIT_LOG" 2>/dev/null || true
+  if [ -w "$AUDIT_LOG" ]; then
+    { printf '%s\n' "$EVAL_OUT" >> "$AUDIT_LOG"; } 2>/dev/null || true
+  elif [ -x "/opt/opa-gate/scripts/opa-gate-audit-append" ]; then
+    { printf '%s\n' "$EVAL_OUT" | sudo -n /opt/opa-gate/scripts/opa-gate-audit-append 2>/dev/null; } 2>/dev/null || true
+  else
+    { printf '%s\n' "$EVAL_OUT" >> "$AUDIT_LOG"; } 2>/dev/null || true
+  fi
 fi
 
 # 9. Handle Decision
