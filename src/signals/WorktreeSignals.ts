@@ -17,6 +17,8 @@ export interface WorktreeSignal {
   readonly available: boolean;
   /** The raw positional path extracted from the command. */
   readonly target_path: string | null;
+  /** The target branch if specified in worktree add (e.g. -b <branch> or <commit-ish>). */
+  readonly target_branch?: string | null;
   /** The worktree subcommand (add, move, repair, list, remove, prune). */
   readonly worktree_subcommand: string | null;
 }
@@ -32,25 +34,25 @@ export class WorktreeSignals implements SignalCollector {
 
   collect(ctx: SignalContext): WorktreeSignal {
     if (ctx.parsed.program !== 'git' || ctx.parsed.subcommand !== 'worktree') {
-      return { available: false, target_path: null, worktree_subcommand: null };
+      return { available: false, target_path: null, target_branch: null, worktree_subcommand: null };
     }
 
     const args = ctx.parsed.args;
     if (args.length === 0) {
-      return { available: false, target_path: null, worktree_subcommand: null };
+      return { available: false, target_path: null, target_branch: null, worktree_subcommand: null };
     }
 
     // First positional is the worktree subcommand.
     const wtSubcommand = args[0];
     if (!WT_PATH_SUBCOMMANDS.has(wtSubcommand)) {
-      return { available: false, target_path: null, worktree_subcommand: wtSubcommand };
+      return { available: false, target_path: null, target_branch: null, worktree_subcommand: wtSubcommand };
     }
 
     // Parse remaining args to find positionals.
     const positionals = parsePositionals(args.slice(1));
 
     if (positionals.length === 0) {
-      return { available: false, target_path: null, worktree_subcommand: wtSubcommand };
+      return { available: false, target_path: null, target_branch: null, worktree_subcommand: wtSubcommand };
     }
 
     // Path extraction depends on subcommand:
@@ -64,15 +66,49 @@ export class WorktreeSignals implements SignalCollector {
     // misread `git worktree add .worktrees/foo HEAD` as targeting path "HEAD"
     // and wrongly denied a legitimate allowlisted worktree add.
     let targetPath: string;
-    if (wtSubcommand === 'add' && positionals.length >= 2) {
-      const first = positionals[0];
-      const last = positionals[positionals.length - 1];
-      // Priority: explicit ref tokens (refs/, origin/, HEAD*, sha) → path is
-      // the other positional. Else path-LIKE disambiguation, else first
-      // (modern path-first synopsis).
-      if (isRefLike(first)) targetPath = last;
-      else if (isRefLike(last)) targetPath = first;
-      else targetPath = isPathLike(last) && !isPathLike(first) ? last : first;
+    let targetBranch: string | null = null;
+
+    if (wtSubcommand === 'add') {
+      // 1. Check for -b / -B flag
+      for (let i = 1; i < args.length; i++) {
+        const a = args[i];
+        if ((a === '-b' || a === '-B') && i + 1 < args.length) {
+          targetBranch = args[i + 1];
+          break;
+        }
+        if (a.startsWith('-b=') || a.startsWith('-B=')) {
+          targetBranch = a.slice(3);
+          break;
+        }
+        if ((a.startsWith('-b') || a.startsWith('-B')) && a.length > 2) {
+          targetBranch = a.slice(2);
+          break;
+        }
+      }
+
+      if (positionals.length >= 2) {
+        const first = positionals[0];
+        const last = positionals[positionals.length - 1];
+        if (isRefLike(first)) {
+          targetPath = last;
+          if (!targetBranch) targetBranch = first;
+        } else if (isRefLike(last)) {
+          targetPath = first;
+          if (!targetBranch) targetBranch = last;
+        } else if (isPathLike(last) && !isPathLike(first)) {
+          targetPath = last;
+          if (!targetBranch) targetBranch = first;
+        } else {
+          targetPath = first;
+          if (!targetBranch) targetBranch = last;
+        }
+      } else {
+        targetPath = positionals[0];
+      }
+
+      if (targetBranch) {
+        targetBranch = targetBranch.replace(/^refs\/heads\//, '').replace(/^origin\//, '');
+      }
     } else if (wtSubcommand === 'move') {
       targetPath = positionals[positionals.length - 1];
     } else {
@@ -82,6 +118,7 @@ export class WorktreeSignals implements SignalCollector {
     return {
       available: targetPath !== null,
       target_path: targetPath,
+      target_branch: targetBranch,
       worktree_subcommand: wtSubcommand,
     };
   }

@@ -763,9 +763,10 @@ deny[msg] if {
 }
 
 # ──────────────────────────────────────────────────────────────────
-# GROUP G — branch-target-allowlist (LD1)
-# Deny git checkout/switch <X> when X ∉ allowed set AND in main worktree.
-# signals.repo.is_main_worktree must be true (sub-worktrees roam free).
+# GROUP G — branch-target-allowlist (LD1, F2, F4, R2)
+# Deny git branch moves off allowlist in protected worktrees (main worktree
+# or worktrees younger than PIOPANET_PROTECT_DAYS, default 3).
+# Sub-worktrees >= 3 days old roam free.
 # ──────────────────────────────────────────────────────────────────
 
 # Default allowed branches if data.config.allowed_branches is absent.
@@ -777,16 +778,32 @@ allowed_branches := branches if {
     not data.config.allowed_branches
 }
 
-# Helper: signals.repo available and is_main_worktree is true.
-repo_available_main_worktree if {
+# Helper: signals.repo available and protected is true (or fallback to is_main_worktree).
+repo_available_protected if {
     input.signals.repo.available == true
+    input.signals.repo.protected == true
+}
+
+repo_available_protected if {
+    input.signals.repo.available == true
+    not input.signals.repo.protected
     input.signals.repo.is_main_worktree == true
+}
+
+# Helper: backward-compatibility alias
+repo_available_main_worktree if {
+    repo_available_protected
 }
 
 # Helper: target resolves as a local branch ref.
 target_is_local_branch if {
     input.signals.git.target_kind == "branch"
     input.signals.git.target_branch != null
+}
+
+# Helper: target is detached HEAD.
+target_is_detached if {
+    input.signals.git.target_kind == "detached"
 }
 
 # Helper: array/set-agnostic membership test for allowed branches.
@@ -796,12 +813,12 @@ branch_allowed(t) if {
     allowed_branches[_] == t
 }
 
-# Deny checkout to non-allowed branch from main worktree.
+# Deny checkout to non-allowed branch in protected worktree (E1, E3, E4).
 # Empty allowed_branches → rule inert (LD3).
 deny[msg] if {
     input.program == "git"
     input.subcommand == "checkout"
-    repo_available_main_worktree
+    repo_available_protected
     target_is_local_branch
     count(allowed_branches) > 0
     target := input.signals.git.target_branch
@@ -809,17 +826,83 @@ deny[msg] if {
     msg := sprintf("branch-target-allowlist: checkout to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
 }
 
-# Deny switch to non-allowed branch from main worktree.
+# Deny switch to non-allowed branch in protected worktree (E2, E6).
 # Empty allowed_branches → rule inert (LD3).
 deny[msg] if {
     input.program == "git"
     input.subcommand == "switch"
-    repo_available_main_worktree
+    repo_available_protected
     target_is_local_branch
     count(allowed_branches) > 0
     target := input.signals.git.target_branch
     not branch_allowed(target)
     msg := sprintf("branch-target-allowlist: switch to non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
+}
+
+# Deny checkout to detached HEAD in protected worktree (E5).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "checkout"
+    repo_available_protected
+    target_is_detached
+    msg := "git checkout/switch in detached HEAD mode is blocked in protected worktrees."
+}
+
+# Deny switch to detached HEAD in protected worktree (E5).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "switch"
+    repo_available_protected
+    target_is_detached
+    msg := "git checkout/switch in detached HEAD mode is blocked in protected worktrees."
+}
+
+# Deny worktree add with non-allowed branch in protected worktree (E7).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "worktree"
+    input.args[0] == "add"
+    repo_available_protected
+    target := input.signals.git.target_branch
+    target != null
+    count(allowed_branches) > 0
+    not branch_allowed(target)
+    msg := sprintf("branch-target-allowlist: worktree add with non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
+}
+
+# Helper: check if symbolic-ref targets HEAD (E8)
+symbolic_ref_targets_head if {
+    some arg in input.args
+    arg == "HEAD"
+}
+
+# Deny git symbolic-ref HEAD in protected worktree (E8).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "symbolic-ref"
+    repo_available_protected
+    symbolic_ref_targets_head
+    msg := "Modifying HEAD via git symbolic-ref is blocked in protected worktrees."
+}
+
+# Helper: check if update-ref targets branch refs or HEAD (E9)
+update_ref_targets_branch if {
+    some arg in input.args
+    startswith(arg, "refs/heads")
+}
+
+update_ref_targets_branch if {
+    some arg in input.args
+    arg == "HEAD"
+}
+
+# Deny git update-ref for branch refs in protected worktree (E9).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "update-ref"
+    repo_available_protected
+    update_ref_targets_branch
+    msg := "Updating branch refs directly via git update-ref is blocked in protected worktrees."
 }
 
 # ──────────────────────────────────────────────────────────────────
