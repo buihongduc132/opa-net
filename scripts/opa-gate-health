@@ -19,6 +19,9 @@ STATUS_FILE = "/var/log/opa-gate/health.status"
 AUDIT_LOG = "/var/log/opa-gate/audit.jsonl"
 LOG_CAP_SCRIPT = "/opt/opa-gate/scripts/opa_gate_log_cap.py"
 
+PINNED_RULEBOOK_DIGEST = "07f500d393d2"
+EXPECTED_RULEBOOK_DIGEST = os.environ.get("OPA_GATE_EXPECTED_DIGEST", PINNED_RULEBOOK_DIGEST)
+
 
 def send_slack_alert(message: str) -> bool:
     slackcli = shutil.which("slackcli") or "/home/bhd/.local/bin/slackcli"
@@ -61,12 +64,22 @@ def run_health_check() -> int:
         else:
             try:
                 data = json.loads(proc.stdout)
-                if data.get("decision") == "deny" and any(
-                    r.get("rule_id") == "block-git-stash-mutations" for r in data.get("reasons", [])
+                decision = data.get("decision")
+                reasons = data.get("reasons", [])
+                metadata = data.get("metadata", {})
+                emitted_digest = metadata.get("rulebook_digest")
+
+                if decision != "deny" or not any(
+                    r.get("rule_id") == "block-git-stash-mutations" for r in reasons
                 ):
-                    is_healthy = True
+                    error_msg = f"Invalid decision payload: decision={decision}"
+                elif emitted_digest != EXPECTED_RULEBOOK_DIGEST:
+                    error_msg = (
+                        f"Rulebook digest mismatch: emitted '{emitted_digest}', "
+                        f"expected '{EXPECTED_RULEBOOK_DIGEST}'"
+                    )
                 else:
-                    error_msg = f"Invalid decision payload: decision={data.get('decision')}"
+                    is_healthy = True
             except Exception as e:
                 error_msg = f"Failed to parse engine output as JSON: {e}. stdout: {proc.stdout[:200]}"
     except subprocess.TimeoutExpired:
@@ -86,6 +99,7 @@ def run_health_check() -> int:
                         "last_check": now_iso,
                         "duration_ms": duration_ms,
                         "engine_bin": cmd_bin,
+                        "rulebook_digest": emitted_digest,
                     },
                     f,
                     indent=2,
