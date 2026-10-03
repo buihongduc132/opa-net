@@ -9,6 +9,9 @@ export type FailMode = 'open' | 'closed';
 /** Cache TTL in ms. 0 disables caching. */
 export const DEFAULT_CACHE_TTL_MS = 0;
 
+/** Default worktree protection boundary in days. */
+export const DEFAULT_PROTECT_DAYS = 3;
+
 /**
  * Default OPA eval timeout (ms). 250ms was enough for the 42-rule catalog and
  * fails open under GROUP K + parallel `bun test` (source:'fail-open' instead
@@ -43,6 +46,8 @@ export interface EngineConfig {
   readonly allowedBranches?: readonly string[];
   /** Allowed prefixes for worktree-path-allowlist rule (LD3). Default: .worktrees,worktrees,~/.config/superpowers/worktrees. */
   readonly worktreeAllowedDirs?: readonly string[];
+  /** Worktree protection age boundary in days (PIOPANET_PROTECT_DAYS). Default: 3. */
+  readonly protectDays?: number;
 }
 
 const ENV = process.env;
@@ -110,6 +115,11 @@ export function configFromEnv(policyPath: string): EngineConfig {
   const allowedBranches = parseAllowedBranches(ENV.PIOPANET_ALLOWED_BRANCHES);
   const worktreeAllowedDirs = parseWorktreeAllowedDirs(ENV.PIOPANET_WORKTREE_ALLOWED_DIRS);
 
+  // OT-7: Centralize protect days env spelling to PIOPANET_PROTECT_DAYS
+  const protectDays = ENV.PIOPANET_PROTECT_DAYS
+    ? Number.parseFloat(ENV.PIOPANET_PROTECT_DAYS)
+    : DEFAULT_PROTECT_DAYS;
+
   return {
     opaBinary: resolveOpaBinary(),
     policyPath,
@@ -123,6 +133,7 @@ export function configFromEnv(policyPath: string): EngineConfig {
     unlockAgentId,
     allowedBranches,
     worktreeAllowedDirs,
+    protectDays,
   };
 }
 

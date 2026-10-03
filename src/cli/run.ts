@@ -92,7 +92,11 @@ export async function runCli(opts: CliOptions): Promise<CliResult> {
   // Collect signals for git commands (lazy: only when program === 'git').
   // LD8: Use parsed.gitCwd (from -C <path>) if present, otherwise process.cwd().
   const baseCwd = process.cwd();
-  const collectors = [new RepoSignals(), new WorktreeSignals(), new EnvSignals()];
+  const collectors = [
+    new RepoSignals({ protectDays: config.protectDays }),
+    new WorktreeSignals(),
+    new EnvSignals(),
+  ];
 
   // Compound commands (joined by ';'): split and evaluate EACH segment.
   // If ANY segment is denied, the whole command is denied. This catches

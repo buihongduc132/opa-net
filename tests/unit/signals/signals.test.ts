@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { execSync as execSyncRaw } from 'node:child_process';
+import { execSync as nodeExecSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,12 @@ import { EnvSignals } from '../../../src/signals/EnvSignals.ts';
 import { RepoSignals } from '../../../src/signals/RepoSignals.ts';
 import { WorktreeSignals, parseWorktreePath } from '../../../src/signals/WorktreeSignals.ts';
 import { collectAll } from '../../../src/signals/collectAll.ts';
+
+const execSyncRaw = ((cmd: string, opts?: any) =>
+  nodeExecSync(cmd, {
+    ...opts,
+    env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin', ...(opts?.env ?? {}) },
+  })) as typeof nodeExecSync;
 
 const makeParsed = (program: string, subcommand: string, args: string[] = []): ParsedCommand => ({
   raw: `${program} ${subcommand} ${args.join(' ')}`.trim(),
@@ -113,7 +119,7 @@ describe('RepoSignals', () => {
     execSyncRaw('git config user.name test', { cwd: mainDir, stdio: 'ignore' });
     writeFileSync(join(mainDir, 'file.txt'), 'init');
     execSyncRaw(
-      'git -c core.hooksPath=/dev/null add file.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init',
+      'git -c core.hooksPath=/dev/null add file.txt && git -c core.hooksPath=/dev/null commit -m init',
       { cwd: mainDir, stdio: 'ignore' },
     );
 
@@ -155,6 +161,10 @@ describe('RepoSignals', () => {
       process.env.PIOPANET_PROTECT_DAYS = '1';
       const c1Day = new RepoSignals({ now: clock2d });
       expect(c1Day.collect(makeCtx('git', 'status', [], wtDir)).protected).toBe(false);
+
+      // OT-7: options.protectDays takes precedence over env var
+      const cExplicit = new RepoSignals({ now: clock2d, protectDays: 5 });
+      expect(cExplicit.collect(makeCtx('git', 'status', [], wtDir)).protected).toBe(true);
     } finally {
       if (prevEnv !== undefined) process.env.PIOPANET_PROTECT_DAYS = prevEnv;
       else delete process.env.PIOPANET_PROTECT_DAYS;

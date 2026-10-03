@@ -79,4 +79,18 @@ describe('configFromEnv', () => {
     delete process.env.PI_OPA_HOSTNAME;
     delete process.env.PI_OPA_SESSION_ID;
   });
+
+  it('OT-7: defaults protectDays to 3 and parses PIOPANET_PROTECT_DAYS', () => {
+    const old = process.env.PIOPANET_PROTECT_DAYS;
+    delete process.env.PIOPANET_PROTECT_DAYS;
+    try {
+      expect(configFromEnv('/p.rego').protectDays).toBe(3);
+      process.env.PIOPANET_PROTECT_DAYS = '7.5';
+      expect(configFromEnv('/p.rego').protectDays).toBe(7.5);
+    } finally {
+      if (old !== undefined) process.env.PIOPANET_PROTECT_DAYS = old;
+      else delete process.env.PIOPANET_PROTECT_DAYS;
+    }
+  });
 });
+

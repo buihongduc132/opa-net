@@ -20,6 +20,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import type { SignalCollector, SignalContext } from './types.ts';
 
+import { DEFAULT_PROTECT_DAYS } from '../config/Config.ts';
+
 export interface RepoSignal {
   readonly available: boolean;
   readonly is_main_worktree: boolean | null;
@@ -31,6 +33,8 @@ export interface RepoSignal {
 export interface RepoSignalsOptions {
   /** Injectable clock returning unix timestamp in ms for deterministic tests. */
   readonly now?: () => number;
+  /** Worktree protection boundary in days. Default: 3. */
+  readonly protectDays?: number;
 }
 
 export class RepoSignals implements SignalCollector {
@@ -202,10 +206,12 @@ export class RepoSignals implements SignalCollector {
         if (ageDays < 0) ageDays = 0;
       }
 
-      // Knob PIOPANET_PROTECT_DAYS (or PIOPANET_WORKTREE_PROTECT_DAYS), default 3.
-      const envDays =
-        process.env.PIOPANET_PROTECT_DAYS || process.env.PIOPANET_WORKTREE_PROTECT_DAYS;
-      const protectDays = envDays ? Number.parseFloat(envDays) : 3;
+      // Knob PIOPANET_PROTECT_DAYS (OT-7 centralized spelling, default 3).
+      const protectDays =
+        this.options?.protectDays ??
+        (process.env.PIOPANET_PROTECT_DAYS
+          ? Number.parseFloat(process.env.PIOPANET_PROTECT_DAYS)
+          : DEFAULT_PROTECT_DAYS);
 
       // Single policy input: signals.repo.protected (bool) = is_main_worktree || age < protect_days.
       const isProtected = isMain || (ageDays !== null && ageDays < protectDays);

@@ -109,17 +109,8 @@ fi
 # 5. Format command for evaluation
 CMD_STR=$(printf '%q ' "$NAME" "$@")
 
-# 6. Unlock-key seam (ruling / P1): pass through OPA_UNLOCK* / --unlock
+# 6. Unlock-key seam (OT-7 centralized spelling): pass through PIOPANET_UNLOCK_KEYS / --unlock
 UNLOCK_ARGS=()
-if [ -n "$OPA_UNLOCK_KEY" ]; then
-  UNLOCK_ARGS+=(--unlock "$OPA_UNLOCK_KEY")
-fi
-if [ -n "$OPA_UNLOCK_KEYS" ]; then
-  IFS=',' read -ra ADDR <<< "$OPA_UNLOCK_KEYS"
-  for k in "${ADDR[@]}"; do
-    [ -n "$k" ] && UNLOCK_ARGS+=(--unlock "$k")
-  done
-fi
 if [ -n "$PIOPANET_UNLOCK_KEYS" ]; then
   IFS=',' read -ra ADDR <<< "$PIOPANET_UNLOCK_KEYS"
   for k in "${ADDR[@]}"; do
