@@ -127,4 +127,14 @@ V1 (Critical, shim) → V2 → V3 → V5 → V6 (rego, independent, parallelizab
 
 ## Gotcha Coverage
 
-See sibling `2026-10-04-opa-gate-bypass-vectors-gotcha.md` (appendix, append-only).
+See sibling `2026-10-04-opa-gate-bypass-vectors-gotcha.md` (appendix, append-only) — 24 gotchas, ranked G1–G24.
+
+## Open Threads (from gotcha coverage — append-only)
+
+- **OT-1 — V1 fix approach corrected (G1, Rank 5)**: the `/proc/$PPID/exe` parent check is vacuous — the shim never persists as a process under `/opt/opa-gate/bin` (always `exec`s the real binary). Re-scoped: **drop the vestigial recursion guard entirely** (`.opa-gate-shim:11-20`; `:195` already unsets the sentinel before every allow-exec) **or** pass a nonce via an inherited secret fd. NOT `/proc/$PPID`, NOT env, NOT a world-readable marker. Item `(v1)` status: **blocked pending approach decision**.
+- **OT-2 — V7 split (G20, Rank 4)**: the "PATH precedence" half is NOT a true residual. **V7a** = retire/repoint the legacy `~/.local/bin/git` wrapper (one-line config, IN-scope, cheap). **V7b** = direct `/usr/bin/git`/execve absolute-path (true residual, OUT). Re-verify V7a before claiming V7 fully OUT.
+- **OT-3 — V2 fail-closed over-broadening (G4, Rank 4)**: blanket "deny unknown git subcommand in protected worktree" denies `git lfs/flow/secret` + bare `git`/`git --version`. Narrow the fallback (alias-resolution-failed AND not a resolvable builtin/extension), never blanket-deny.
+- **OT-4 — V4 scope widens (G7/G8/G14)**: cwd redirection is not `cd`-only — `--git-dir`/`--work-tree`/`--namespace` (stripped-and-discarded) and cd variants (subshell, `pushd/popd`, `cd -`/`~`/no-arg) share the same class. Fix must capture those globals + a cwd stack; `splitTopLevelSegments` must return operators (correct `&&`/`||`/`;` short-circuit).
+- **OT-5 — V5 two-spellings (G9, Rank 4)**: single `is_head_ref(arg)` = `"HEAD" | "@"` used in guard **and** exclusion (`not is_head_ref(other)`) + `update_ref_targets_branch`, else read-only `git symbolic-ref @` is wrongly denied.
+- **OT-6 — V7 watchdog tamperability (G10, Rank 4)**: un-gated `git reflog expire/delete` + `core.logAllRefUpdates false` blind the residual detector. Add deny rules or mark the residual mitigation as defeatable.
+- **OT-7 — env-knob drift (G6/G13)**: `PIOPANET_PROTECT_DAYS` (2 spellings) and unlock-keys (3 spellings) read raw outside `Config.ts`. Centralize to single accessor + single spelling.
