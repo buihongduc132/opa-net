@@ -11,7 +11,7 @@ Metal-ops wiring rules:
 - NOT boot-critical (idle-priority, oneshot)
 - Atomic state file persistence
 - Zero false positives on 7-day retro scan
-- Alerts to Slack #opa-net (C0C42KW561E) + append flow/findings/.../watchdog.log
+- Local log only (Slack posting disabled) — appends flow/findings/.../watchdog.log
 """
 
 import argparse
@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Set, Tuple
 DEFAULT_SCAN_ROOTS = ["/home/bhd/Documents/Projects"]
 DEFAULT_ALLOWLIST = {"dev", "main", "staging", "test", "stag", "master"}
 DEFAULT_PROTECT_DAYS = 3.0
-DEFAULT_SLACK_CHANNEL = "C0C42KW561E"
+DEFAULT_SLACK_CHANNEL = ""  # Disabled — local log only
 DEFAULT_STATE_FILE = os.path.expanduser("~/.local/state/opa-net/watchdog-state.json")
 
 REFLOG_LINE_RE = re.compile(
@@ -465,57 +465,20 @@ def scan_incremental(
 
 def send_slack_message(
     msg_text: str,
-    channel_id: str,
+    channel_id: Optional[str] = None,
     thread_ts: Optional[str] = None,
 ) -> Optional[str]:
-    """Send arbitrary message using slackcli. Returns delivered message ts or None."""
-    slackcli_path = shutil.which("slackcli") or "/home/bhd/.local/bin/slackcli"
-    if not os.path.exists(slackcli_path):
-        sys.stderr.write(f"slackcli not found at {slackcli_path}\n")
-        return None
-
-    cmd = [
-        slackcli_path,
-        "messages",
-        "send",
-        "--recipient-id",
-        channel_id,
-        "--message",
-        msg_text,
-        "--json",
-    ]
-    if thread_ts:
-        cmd.extend(["--thread-ts", thread_ts])
-
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        raw_out = res.stdout
-        idx = raw_out.find("{")
-        idx_end = raw_out.rfind("}")
-        if idx != -1 and idx_end != -1 and idx_end > idx:
-            data = json.loads(raw_out[idx : idx_end + 1])
-            return data.get("ts")
-    except subprocess.CalledProcessError as e:
-        sys.stderr.write(f"slackcli failed (code {e.returncode}): {e.stderr}\n")
-    except Exception as e:
-        sys.stderr.write(f"Error executing slackcli: {e}\n")
+    """Slack alerts disabled per user policy — local log only. Always returns None."""
     return None
 
 
 def send_slack_alert(
     event: DriftEvent,
-    channel_id: str,
+    channel_id: Optional[str] = None,
     thread_ts: Optional[str] = None,
 ) -> Optional[str]:
-    """Send Slack alert for branch drift using slackcli."""
-    msg_text = (
-        f"🚨 *[opa-net watchdog]* Branch drift detected in protected directory!\n"
-        f"• *Target*: `{event.target.target_path}` ({event.target.kind})\n"
-        f"• *Branch Change*: `{event.from_ref}` → `{event.to_ref}`\n"
-        f"• *Action*: `{event.raw_msg}`\n"
-        f"• *Timestamp*: {event.iso_time()} (unix: {event.ts})"
-    )
-    return send_slack_message(msg_text, channel_id, thread_ts)
+    """Slack alerts disabled per user policy — local log only. Always returns None."""
+    return None
 
 
 def append_watchdog_log(log_path: str, event: DriftEvent, slack_ts: Optional[str] = None) -> None:
@@ -742,7 +705,7 @@ def main():
     parser.add_argument(
         "--slack-channel",
         default=os.environ.get("PIOPANET_WATCHDOG_SLACK_CHANNEL", DEFAULT_SLACK_CHANNEL),
-        help=f"Slack channel recipient ID (default: {DEFAULT_SLACK_CHANNEL})",
+        help="Slack channel recipient ID (disabled, local log only)",
     )
     parser.add_argument(
         "--slack-thread-ts",
@@ -906,7 +869,7 @@ def main():
     # Normal mode: handle detected drift events
     if events and not args.dry_run:
         for ev in events:
-            # 1. Send alert via slackcli
+            # 1. Slack alert disabled (local log only)
             delivered_ts = send_slack_alert(
                 event=ev,
                 channel_id=args.slack_channel,

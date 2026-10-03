@@ -2,7 +2,7 @@
 """
 scripts/opa-gate-health — Universal Shell Gate health check
 Runs smoke test every 5m: pi-opa-net eval "git stash pop" --json
-On failure -> sends alert to Slack #opa-net (C0C42KW561E) and logs failure.
+On failure -> logs failure locally (Slack posting disabled).
 Also triggers log cap maintenance.
 """
 
@@ -16,7 +16,7 @@ import sys
 
 ENGINE_BIN = "/opt/opa-gate/engine/bin/pi-opa-net"
 POLICY_FILE = os.environ.get("OPA_GATE_POLICY_FILE", "/opt/opa-gate/engine/policy/safety.rego")
-SLACK_CHANNEL = "C0C42KW561E"
+SLACK_CHANNEL = ""  # Disabled — local log only
 STATUS_FILE = "/var/log/opa-gate/health.status"
 AUDIT_LOG = "/var/log/opa-gate/audit.jsonl"
 LOG_CAP_SCRIPT = "/opt/opa-gate/scripts/opa_gate_log_cap.py"
@@ -37,21 +37,8 @@ def compute_policy_digest(policy_path: str = POLICY_FILE) -> str:
 
 
 def send_slack_alert(message: str) -> bool:
-    slackcli = shutil.which("slackcli") or "/home/bhd/.local/bin/slackcli"
-    if not os.path.exists(slackcli):
-        sys.stderr.write(f"slackcli not found at {slackcli}\n")
-        return False
-    try:
-        res = subprocess.run(
-            [slackcli, "messages", "send", "--recipient-id", SLACK_CHANNEL, "--message", message, "--json"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        return res.returncode == 0
-    except Exception as e:
-        sys.stderr.write(f"Failed to send Slack alert: {e}\n")
-        return False
+    """Slack alert disabled per user policy — local log only."""
+    return False
 
 
 def run_health_check() -> int:
@@ -170,8 +157,8 @@ def run_health_check() -> int:
     except Exception:
         pass
 
-    # 3. Slack alert
-    send_slack_alert(alert_text)
+    # 3. Slack alert (disabled — local log only)
+    # send_slack_alert(alert_text)
 
     # 4. Write failing status
     try:
