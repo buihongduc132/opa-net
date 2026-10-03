@@ -44,7 +44,58 @@ if [ "$NAME" = "sudo" ] || [ "$NAME" = "pi-opa-net" ] || [ "$NAME" = "opa" ] || 
   exec "$REAL_BIN" "$@"
 fi
 
-# 4. Engine CLI resolution
+# 4. Fast-path allowlist for non-gated & read-only patterns (P2 perf gate: <100ms median)
+IS_GATED=1
+case "$NAME" in
+  git|docker|docker-compose|gh|glab|gcloud|bq|aws|tmux|pkill|killall|herdr|pulumi|rm|bd|pm2|systemctl|terragrunt|nomad|consul|vault|dd|find|du|rg|fd|rgrep|grep|egrep|ls|eza|fsck|baobab)
+    IS_GATED=1
+    ;;
+  *)
+    # Non-gated binary (e.g. cat, head, tail, whoami, date, uname, sleep, true, id, sed, awk...)
+    IS_GATED=0
+    ;;
+esac
+
+if [ "$NAME" = "ls" ] || [ "$NAME" = "eza" ]; then
+  IS_GATED=0
+  for a in "$@"; do
+    if [ "$a" = "-R" ] || [ "$a" = "--recursive" ] || [[ "$a" =~ ^-[a-zA-Z0-9]*R ]]; then
+      IS_GATED=1
+      break
+    fi
+  done
+fi
+
+if [ "$NAME" = "grep" ] || [ "$NAME" = "egrep" ]; then
+  IS_GATED=0
+  for a in "$@"; do
+    if [ "$a" = "-r" ] || [ "$a" = "-R" ] || [ "$a" = "--recursive" ] || [[ "$a" =~ hermes ]]; then
+      IS_GATED=1
+      break
+    fi
+  done
+fi
+
+if [ "$NAME" = "git" ]; then
+  case "${1:-}" in
+    status|log|diff|show|rev-parse|version|--version|cat-file|ls-files|ls-remote|describe|blame|shortlog)
+      IS_GATED=0
+      ;;
+  esac
+fi
+
+if [ "$IS_GATED" -eq 0 ]; then
+  # Still audit-logged per P2 requirement
+  AUDIT_LOG="/var/log/opa-gate/audit.jsonl"
+  if [ -d "/var/log/opa-gate" ]; then
+    printf '{"schema_version":"1.0","decision":"allow","action":"allow","source":"fast-path","summary":"fast-path: %s","input":{"raw":"%s","program":"%s"}}\n' "$NAME" "$NAME $*" "$NAME" >> "$AUDIT_LOG" 2>/dev/null || true
+  fi
+  PATH="$ORIG_PATH"
+  unset OPA_GATE_INTERNAL
+  exec "$REAL_BIN" "$@"
+fi
+
+# 5. Engine CLI resolution
 ENGINE_CLI=""
 if [ -x "/opt/opa-gate/engine/bin/pi-opa-net" ]; then
   ENGINE_CLI="/opt/opa-gate/engine/bin/pi-opa-net"
