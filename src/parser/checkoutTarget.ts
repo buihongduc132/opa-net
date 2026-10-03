@@ -17,6 +17,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /** Result of checkout target classification. */
 export type CheckoutClassification =
@@ -222,11 +224,20 @@ function classifyPositional(
         });
         return { kind: 'detached' };
       } catch {
-        // Fall back to pattern check or commit-ish.
+        // Fall back to pattern check for detached target.
         if (/^[0-9a-f]{7,40}$/i.test(candidate) || /^HEAD(~|\^|\b)/.test(candidate)) {
           return { kind: 'detached' };
         }
-        return { kind: 'commit-ish' };
+        // Check if candidate is an existing file in cwd (file restore pathspec form without --).
+        try {
+          if (existsSync(resolve(cwd, candidate))) {
+            return { kind: 'file-restore' };
+          }
+        } catch {
+          // ignore error
+        }
+        // Otherwise, candidate is treated as a branch target (E1, E2).
+        return { kind: 'branch', name: candidate };
       }
     }
   }
