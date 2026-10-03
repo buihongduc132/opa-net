@@ -6,6 +6,8 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
+User=root
+Group=root
 ExecStart=/usr/bin/bash /opt/opa-gate/scripts/opa-gate-populate --shim-src /opt/opa-gate/scripts/.opa-gate-shim
 CPUSchedulingPolicy=idle
 Nice=19
