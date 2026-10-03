@@ -8,20 +8,8 @@ set -o pipefail 2>/dev/null || true
 
 NAME="${0##*/}"
 
-# 1. Boot safety / recursion guard
-if [ "${OPA_GATE_INTERNAL:-0}" = "1" ]; then
-  for dir in /usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
-    if [ "$dir" != "/opt/opa-gate/bin" ] && [ -x "$dir/$NAME" ]; then
-      exec "$dir/$NAME" "$@"
-    fi
-  done
-  echo "opa-gate: $NAME: command not found" >&2
-  exit 127
-fi
-
 ORIG_PATH="$PATH"
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
-export OPA_GATE_INTERNAL=1
 
 # 2. Resolve the REAL binary via fixed path table (NEVER re-searching PATH)
 REAL_BIN=""
@@ -40,7 +28,6 @@ fi
 # 3. Fast-path check: internal and exempt binaries (sudo recursion prevention)
 if [ "$NAME" = "sudo" ] || [ "$NAME" = "pi-opa-net" ] || [ "$NAME" = "opa" ] || [ "$NAME" = "bun" ]; then
   PATH="$ORIG_PATH"
-  unset OPA_GATE_INTERNAL
   exec "$REAL_BIN" "$@"
 fi
 
@@ -100,7 +87,6 @@ if [ "$IS_GATED" -eq 0 ]; then
     fi
   fi
   PATH="$ORIG_PATH"
-  unset OPA_GATE_INTERNAL
   exec "$REAL_BIN" "$@"
 fi
 
@@ -117,7 +103,6 @@ fi
 # Fail-open if engine is missing or unexecutable
 if [ -z "$ENGINE_CLI" ]; then
   PATH="$ORIG_PATH"
-  unset OPA_GATE_INTERNAL
   exec "$REAL_BIN" "$@"
 fi
 
@@ -192,5 +177,4 @@ fi
 
 # Exit 0 (allow) or timeout/failure (fail-open)
 PATH="$ORIG_PATH"
-unset OPA_GATE_INTERNAL
 exec "$REAL_BIN" "$@"

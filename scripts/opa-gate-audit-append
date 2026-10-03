@@ -1,7 +1,6 @@
 #!/bin/sh
 set -e
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
-export OPA_GATE_INTERNAL=1
 AUDIT_LOG="/var/log/opa-gate/audit.jsonl"
 if [ ! -f "$AUDIT_LOG" ]; then
   umask 027
