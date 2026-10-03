@@ -45,6 +45,22 @@ describe('stripGitGlobalOptions', () => {
       ]);
     });
 
+    it('strips attached -C<path>', () => {
+      expect(stripGitGlobalOptions(['-C/evil', 'worktree', 'add', 'foo'])).toEqual([
+        'worktree',
+        'add',
+        'foo',
+      ]);
+    });
+
+    it('strips attached -c<name>=<value>', () => {
+      expect(stripGitGlobalOptions(['-cuser.email=x@y', 'commit', '-m', 'foo'])).toEqual([
+        'commit',
+        '-m',
+        'foo',
+      ]);
+    });
+
     it('strips --git-dir=/path', () => {
       expect(stripGitGlobalOptions(['--git-dir=/tmp/x', 'status'])).toEqual(['status']);
     });

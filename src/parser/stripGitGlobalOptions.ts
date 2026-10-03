@@ -84,6 +84,10 @@ export function stripWithMeta(args: readonly string[]): StripResult {
         i++;
         continue;
       }
+      if (key.startsWith('-c')) {
+        i++;
+        continue;
+      }
       // Not a global option — the subcommand (or a flag after it) begins here.
       result.push(...args.slice(i));
       break;
@@ -100,6 +104,17 @@ export function stripWithMeta(args: readonly string[]): StripResult {
 
     // No-value global flags
     if (GLOBAL_OPTIONS_NO_VALUE.has(arg)) {
+      i++;
+      continue;
+    }
+
+    // Attached short options: -C<path>, -c<name>=<value>
+    if (arg.startsWith('-C') && arg.length > 2 && !arg.includes('=')) {
+      cPath = arg.slice(2);
+      i++;
+      continue;
+    }
+    if (arg.startsWith('-c') && arg.length > 2) {
       i++;
       continue;
     }

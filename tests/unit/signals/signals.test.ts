@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { execSync as execSyncRaw } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ParsedCommand } from '../../../src/parser/types.ts';
@@ -80,8 +80,7 @@ describe('RepoSignals', () => {
     execSyncRaw('git init -b main', { cwd: wtDir, stdio: 'ignore' });
 
     const t0 = 1700000000000;
-    const fs = require('node:fs') as typeof import('node:fs');
-    fs.utimesSync(wtDir, new Date(t0), new Date(t0));
+    utimesSync(wtDir, new Date(t0), new Date(t0));
 
     try {
       // 2 days 23 hours later: 2 * 86400 + 23 * 3600 = 255600 seconds
@@ -142,8 +141,7 @@ describe('RepoSignals', () => {
     execSyncRaw('git init -b main', { cwd: wtDir, stdio: 'ignore' });
 
     const t0 = 1700000000000;
-    const fs = require('node:fs') as typeof import('node:fs');
-    fs.utimesSync(wtDir, new Date(t0), new Date(t0));
+    utimesSync(wtDir, new Date(t0), new Date(t0));
 
     const clock2d = () => t0 + 2 * 86400 * 1000;
     const prevEnv = process.env.PIOPANET_PROTECT_DAYS;
@@ -235,6 +233,30 @@ describe('WorktreeSignals', () => {
     );
     expect(result.available).toBe(true);
     expect(result.target_path).toBe('/tmp/evil');
+  });
+
+  it('skips --reason value and does not misclassify as branch or path', () => {
+    const collector = new WorktreeSignals();
+    const withBranch = collector.collect(
+      makeCtx('git', 'worktree', [
+        'add',
+        '--lock',
+        '--reason',
+        'fixing bug',
+        '.worktrees/feat',
+        'my-branch',
+      ]),
+    );
+    expect(withBranch.available).toBe(true);
+    expect(withBranch.target_path).toBe('.worktrees/feat');
+    expect(withBranch.target_branch).toBe('my-branch');
+
+    const withoutBranch = collector.collect(
+      makeCtx('git', 'worktree', ['add', '--reason', 'fixing bug', '.worktrees/feat']),
+    );
+    expect(withoutBranch.available).toBe(true);
+    expect(withoutBranch.target_path).toBe('.worktrees/feat');
+    expect(withoutBranch.target_branch).toBeNull();
   });
 
   it('returns unavailable for git worktree list', () => {

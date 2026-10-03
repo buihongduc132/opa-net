@@ -24,7 +24,7 @@ export interface WorktreeSignal {
 }
 
 /** Flags that consume the next arg as a value (worktree subcommands). */
-const WT_FLAGS_WITH_VALUE = new Set(['-b', '-B']);
+const WT_FLAGS_WITH_VALUE = new Set(['-b', '-B', '--reason']);
 
 /** Worktree subcommands that take a path argument. */
 const WT_PATH_SUBCOMMANDS = new Set(['add', 'move', 'repair']);

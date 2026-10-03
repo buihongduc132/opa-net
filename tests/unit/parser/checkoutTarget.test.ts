@@ -1,4 +1,8 @@
 import { afterAll, describe, expect, it } from 'bun:test';
+import { execSync } from 'node:child_process';
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { classifyCheckoutTarget } from '../../../src/parser/checkoutTarget.ts';
 
 describe('classifyCheckoutTarget', () => {
@@ -50,6 +54,33 @@ describe('classifyCheckoutTarget', () => {
         name: 'develop',
       });
     });
+
+    it('--track flag does NOT consume positional target branch', () => {
+      expect(classifyCheckoutTarget(['--track', 'origin/feature'])).toEqual({
+        kind: 'branch',
+        name: 'feature',
+      });
+      expect(classifyCheckoutTarget(['-t', 'origin/feature'])).toEqual({
+        kind: 'branch',
+        name: 'feature',
+      });
+    });
+
+    it('--conflict flag consumes its style value without eating the target branch', () => {
+      expect(classifyCheckoutTarget(['--conflict', 'diff3', 'origin/feature'])).toEqual({
+        kind: 'branch',
+        name: 'feature',
+      });
+    });
+
+    it('--pathspec-from-file classifies as file-restore', () => {
+      expect(classifyCheckoutTarget(['--pathspec-from-file', 'files.txt'])).toEqual({
+        kind: 'file-restore',
+      });
+      expect(classifyCheckoutTarget(['--pathspec-from-file=files.txt'])).toEqual({
+        kind: 'file-restore',
+      });
+    });
   });
 
   describe('edge cases', () => {
@@ -74,19 +105,15 @@ describe('classifyCheckoutTarget', () => {
   });
 
   describe('E3, E4, E5, E6 with real git repo cwd', () => {
-    const { mkdtempSync, rmSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
-    const { tmpdir } = require('node:os') as typeof import('node:os');
-    const { join } = require('node:path') as typeof import('node:path');
-    const { execSync } = require('node:child_process') as typeof import('node:child_process');
-
     // Create a real git fixture
     const repoDir = mkdtempSync(join(tmpdir(), 'checkout-target-test-'));
     execSync('git init -b main', { cwd: repoDir, stdio: 'ignore' });
     execSync('git config user.email test@test.com', { cwd: repoDir, stdio: 'ignore' });
     execSync('git config user.name test', { cwd: repoDir, stdio: 'ignore' });
     writeFileSync(join(repoDir, 'init.txt'), 'hello');
+    writeFileSync(join(repoDir, 'deleted.txt'), 'to be deleted');
     execSync(
-      'git -c core.hooksPath=/dev/null add init.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init',
+      'git -c core.hooksPath=/dev/null add init.txt deleted.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init',
       { cwd: repoDir, stdio: 'ignore' },
     );
     const initialCommitSha = execSync('git rev-parse HEAD', {
@@ -94,6 +121,8 @@ describe('classifyCheckoutTarget', () => {
       encoding: 'utf8',
     }).trim();
     execSync('git branch local-feat', { cwd: repoDir, stdio: 'ignore' });
+    execSync('git remote add fork https://example.com/fork.git', { cwd: repoDir, stdio: 'ignore' });
+    unlinkSync(join(repoDir, 'deleted.txt'));
 
     it('E3: checkout -b <new> → kind branch (even when <new> does not exist yet)', () => {
       const res = classifyCheckoutTarget(['-b', 'brand-new-branch'], repoDir);
@@ -103,6 +132,21 @@ describe('classifyCheckoutTarget', () => {
     it('E4: checkout origin/<x> (no local branch) → kind branch name <x>', () => {
       const res = classifyCheckoutTarget(['origin/remote-only-branch'], repoDir);
       expect(res).toEqual({ kind: 'branch', name: 'remote-only-branch' });
+    });
+
+    it('E4 custom remote: checkout fork/<x> → kind branch name <x>', () => {
+      const res = classifyCheckoutTarget(['fork/remote-only-branch'], repoDir);
+      expect(res).toEqual({ kind: 'branch', name: 'remote-only-branch' });
+    });
+
+    it('checkout --track origin/<x> with cwd → kind branch name <x>', () => {
+      const res = classifyCheckoutTarget(['--track', 'origin/remote-only-branch'], repoDir);
+      expect(res).toEqual({ kind: 'branch', name: 'remote-only-branch' });
+    });
+
+    it('restores deleted tracked file → kind file-restore', () => {
+      const res = classifyCheckoutTarget(['deleted.txt'], repoDir);
+      expect(res).toEqual({ kind: 'file-restore' });
     });
 
     it('E5: checkout <sha> / --detach → kind detached', () => {

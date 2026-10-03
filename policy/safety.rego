@@ -870,18 +870,37 @@ deny[msg] if {
     msg := sprintf("branch-target-allowlist: worktree add with non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
 }
 
-# Helper: check if symbolic-ref targets HEAD (E8)
-symbolic_ref_targets_head if {
+# Non-flag args in input.args
+symbolic_ref_non_flags := [arg | arg := input.args[_]; not startswith(arg, "-")]
+
+# Helper: check if symbolic-ref mutates HEAD (E8). Read queries (e.g. `git symbolic-ref HEAD` or `--short HEAD`) are allowed.
+symbolic_ref_mutates_head if {
     some arg in input.args
     arg == "HEAD"
+    has_any_arg(input.args, ["-d", "--delete"])
 }
 
-# Deny git symbolic-ref HEAD in protected worktree (E8).
+symbolic_ref_mutates_head if {
+    some arg in input.args
+    arg == "HEAD"
+    not has_any_arg(input.args, ["-m"])
+    some other in symbolic_ref_non_flags
+    other != "HEAD"
+}
+
+symbolic_ref_mutates_head if {
+    some arg in input.args
+    arg == "HEAD"
+    has_any_arg(input.args, ["-m"])
+    count(symbolic_ref_non_flags) >= 3
+}
+
+# Deny git symbolic-ref modifying HEAD in protected worktree (E8).
 deny[msg] if {
     input.program == "git"
     input.subcommand == "symbolic-ref"
     repo_available_protected
-    symbolic_ref_targets_head
+    symbolic_ref_mutates_head
     msg := "Modifying HEAD via git symbolic-ref is blocked in protected worktrees."
 }
 

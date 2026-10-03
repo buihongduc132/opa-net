@@ -16,6 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import type { SignalCollector, SignalContext } from './types.ts';
 
@@ -73,7 +74,6 @@ export class RepoSignals implements SignalCollector {
       }
 
       // Resolve both to absolute paths for comparison.
-      const fs = require('node:fs') as typeof import('node:fs');
       const absGitDir = resolve(ctx.cwd, gitDir);
       const absCommonDir = resolve(ctx.cwd, commonDir);
 
@@ -118,7 +118,7 @@ export class RepoSignals implements SignalCollector {
             // no remote
           }
 
-          const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+          const entries = readdirSync(parentDir, { withFileTypes: true });
           const siblings = entries
             .filter((e) => e.isDirectory() || e.isSymbolicLink())
             .map((e) => e.name);
@@ -143,7 +143,7 @@ export class RepoSignals implements SignalCollector {
               return false;
             })
             .filter((s) => {
-              return fs.existsSync(resolve(parentDir, s, '.git'));
+              return existsSync(resolve(parentDir, s, '.git'));
             });
 
           if (family.length > 0) {
@@ -157,16 +157,16 @@ export class RepoSignals implements SignalCollector {
 
       // Age calculation (R2):
       // Age = FIRST entry of .git/worktrees/<id>/logs/HEAD (unix ts field), fallback dir mtime.
-      // Sibling-clone lanes: age = dir mtime.
+      // Sibling-clone lanes: check logs/HEAD, fallback dir mtime.
       const nowMs = this.options?.now ? this.options.now() : Date.now();
       let createdMs: number | null = null;
 
-      if (!gitNativeIsMain) {
-        // Linked worktree: check logs/HEAD inside absGitDir (which is .git/worktrees/<id>)
+      if (!isMain) {
+        // Non-main worktree or sibling clone: check logs/HEAD inside absGitDir
         const logsHead = resolve(absGitDir, 'logs/HEAD');
-        if (fs.existsSync(logsHead)) {
+        if (existsSync(logsHead)) {
           try {
-            const content = fs.readFileSync(logsHead, 'utf8');
+            const content = readFileSync(logsHead, 'utf8');
             const lines = content.split('\n').filter((l: string) => l.trim().length > 0);
             if (lines.length > 0) {
               const firstLine = lines[0];
@@ -189,7 +189,7 @@ export class RepoSignals implements SignalCollector {
       if (createdMs === null) {
         try {
           const targetDir = toplevel ?? ctx.cwd;
-          const stat = fs.statSync(targetDir);
+          const stat = statSync(targetDir);
           createdMs = stat.mtimeMs;
         } catch {
           createdMs = null;

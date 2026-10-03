@@ -29,7 +29,7 @@ export type CheckoutClassification =
   | { kind: 'none' };
 
 /** Flags that consume the next arg as a REQUIRED value (checkout/switch). */
-const FLAGS_WITH_VALUE = new Set(['--track', '--lock', '--source']);
+const FLAGS_WITH_VALUE = new Set(['--lock', '--source', '--conflict', '--pathspec-from-file']);
 
 /** Flags that take no value. */
 const FLAGS_NO_VALUE = new Set([
@@ -80,9 +80,12 @@ export function classifyCheckoutTarget(
     return { kind: 'none' };
   }
 
-  // Detect `--` separator → pathspec form → file restore.
+  // Detect `--` separator or `--pathspec-from-file` → pathspec form → file restore.
   const dashIdx = args.indexOf('--');
   if (dashIdx !== -1) {
+    return { kind: 'file-restore' };
+  }
+  if (args.some((a) => a === '--pathspec-from-file' || a.startsWith('--pathspec-from-file='))) {
     return { kind: 'file-restore' };
   }
 
@@ -191,10 +194,31 @@ function classifyPositional(
   let candidate = token;
   let isRemote = false;
   if (token.includes('/')) {
-    const parts = token.split('/');
-    // Strip leading origin/, upstream/, etc.
+    const cleanToken = token.replace(/^refs\/remotes\//, '').replace(/^remotes\//, '');
+    const parts = cleanToken.split('/');
     const knownRemotes = ['origin', 'upstream', 'github', 'gerrit'];
-    if (knownRemotes.includes(parts[0])) {
+    let remoteMatched = knownRemotes.includes(parts[0]);
+
+    if (!remoteMatched && cwd) {
+      try {
+        const remotes = execFileSync('git', ['remote'], {
+          cwd,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 250,
+        })
+          .split('\n')
+          .map((r) => r.trim())
+          .filter(Boolean);
+        if (remotes.includes(parts[0])) {
+          remoteMatched = true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (remoteMatched) {
       candidate = parts.slice(1).join('/');
       isRemote = true;
     }
@@ -228,10 +252,31 @@ function classifyPositional(
         if (/^[0-9a-f]{7,40}$/i.test(candidate) || /^HEAD(~|\^|\b)/.test(candidate)) {
           return { kind: 'detached' };
         }
-        // Check if candidate is an existing file in cwd (file restore pathspec form without --).
+        // Check if candidate is an existing or tracked file (file restore pathspec form without --).
         try {
           if (existsSync(resolve(cwd, candidate))) {
             return { kind: 'file-restore' };
+          }
+          // Also check git index/HEAD for tracked files that were deleted from disk.
+          try {
+            execFileSync('git', ['ls-files', '--error-unmatch', candidate], {
+              cwd,
+              stdio: ['ignore', 'ignore', 'ignore'],
+              timeout: 250,
+            });
+            return { kind: 'file-restore' };
+          } catch {
+            // not in index
+          }
+          try {
+            execFileSync('git', ['cat-file', '-e', `HEAD:${candidate}`], {
+              cwd,
+              stdio: ['ignore', 'ignore', 'ignore'],
+              timeout: 250,
+            });
+            return { kind: 'file-restore' };
+          } catch {
+            // not in HEAD
           }
         } catch {
           // ignore error

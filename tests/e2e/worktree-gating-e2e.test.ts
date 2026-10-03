@@ -7,10 +7,12 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 /**
  * E2E tests for worktree/branch gating (LD1-LD8).
@@ -131,7 +133,9 @@ interface CaseResult {
 
 function runCli(command: string, cwd: string, env?: Record<string, string>): CaseResult {
   const args = ['eval', command, '--json'];
-  const fullEnv = { ...process.env, ...env };
+  const miseShims = `${process.env.HOME}/.local/share/mise/shims:${process.env.HOME}/.bun/bin`;
+  const pathWithShims = process.env.PATH ? `${miseShims}:${process.env.PATH}` : miseShims;
+  const fullEnv = { ...process.env, PATH: pathWithShims, ...env };
   try {
     const stdout = execFileSync('bun', ['run', BIN, ...args], {
       encoding: 'utf8',
@@ -293,7 +297,6 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
       writeFileSync(reflogPath, line);
     }
     const fourDaysAgo = new Date(Date.now() - 4 * 86400 * 1000);
-    const { utimesSync } = require('node:fs') as typeof import('node:fs');
     try {
       utimesSync(subWt, fourDaysAgo, fourDaysAgo);
     } catch {
@@ -375,6 +378,13 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     expect(JSON.stringify(result.record?.reasons ?? '')).toContain('symbolic-ref');
   });
 
+  it('(p2) E8 read-only: git symbolic-ref --short HEAD in protected worktree → ALLOW', () => {
+    const result = runCli('git symbolic-ref --short HEAD', fixtureRepo);
+    expect(result.exitCode).toBe(0);
+    expect(result.record?.decision).toBe('allow');
+    expect(JSON.stringify(result.record?.reasons ?? '')).not.toContain('symbolic-ref');
+  });
+
   it('(q) E9: git update-ref refs/heads in protected worktree → DENY', () => {
     const headSha = execSyncRaw('git rev-parse HEAD', {
       cwd: fixtureRepo,
@@ -384,6 +394,28 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     expect(result.exitCode).toBe(2);
     expect(result.record?.decision).toBe('deny');
     expect(JSON.stringify(result.record?.reasons ?? '')).toContain('update-ref');
+  });
+
+  it('(r) checkout --track origin/feature-evil from main worktree → DENY', () => {
+    const result = runCli('git checkout --track origin/feature-evil', fixtureRepo);
+    expect(result.exitCode).toBe(2);
+    expect(result.record?.decision).toBe('deny');
+    expect(JSON.stringify(result.record?.reasons ?? '')).toContain('branch-target-allowlist');
+  });
+
+  it('(s) restore deleted tracked file in main worktree → ALLOW (file restore)', () => {
+    // Commit a file, delete it from disk, then restore it.
+    writeFileSync(join(fixtureRepo, 'restorable.txt'), 'content\n');
+    execSync(
+      'git -c core.hooksPath=/dev/null add restorable.txt && git -c core.hooksPath=/dev/null commit --no-verify -m add-restorable',
+      { cwd: fixtureRepo, stdio: 'ignore' },
+    );
+    unlinkSync(join(fixtureRepo, 'restorable.txt'));
+
+    const result = runCli('git checkout restorable.txt', fixtureRepo);
+    expect(result.exitCode).toBe(0);
+    expect(result.record?.decision).toBe('allow');
+    expect(JSON.stringify(result.record?.reasons ?? '')).not.toContain('branch-target-allowlist');
   });
 
   it('(j) git -C <other-repo> worktree add → cwd propagated to signals (LD8)', () => {
@@ -416,7 +448,7 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
       const signals = result.record?.signals as { repo?: { name?: string } } | undefined;
       expect(signals?.repo?.name).toBeDefined();
       // The repo name should be from otherRepo (basename), not fixtureRepo.
-      const otherName = require('node:path').basename(otherRepo);
+      const otherName = basename(otherRepo);
       expect(signals?.repo?.name).toBe(otherName);
     } finally {
       rmSync(otherRepo, { recursive: true, force: true });
