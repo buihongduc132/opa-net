@@ -1,0 +1,160 @@
+#!/bin/bash
+# opa-gate-populate — populates /opt/opa-gate/bin with symlinks to .opa-gate-shim
+# Supports atomic swap via staging directory (P4 boot-safety requirement).
+
+set -euo pipefail
+
+TARGET_DIR="/opt/opa-gate/bin"
+SHIM_SRC=""
+STAGING_DIR=""
+ATOMIC=1
+DRY_RUN=0
+
+print_usage() {
+  echo "Usage: opa-gate-populate [OPTIONS]"
+  echo "Options:"
+  echo "  --target-dir <dir>    Target shim directory (default: /opt/opa-gate/bin)"
+  echo "  --shim-src <path>     Path to .opa-gate-shim script"
+  echo "  --staging-dir <dir>   Custom staging directory (for atomic swap)"
+  echo "  --no-atomic           Populate in-place without atomic swap"
+  echo "  --dry-run             Simulate actions without writing"
+  echo "  --help                Show this message"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target-dir)
+      TARGET_DIR="$2"
+      shift 2
+      ;;
+    --shim-src)
+      SHIM_SRC="$2"
+      shift 2
+      ;;
+    --staging-dir)
+      STAGING_DIR="$2"
+      shift 2
+      ;;
+    --no-atomic)
+      ATOMIC=0
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --help|-h)
+      print_usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      print_usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Find shim source if not specified
+if [ -z "$SHIM_SRC" ]; then
+  if [ -f "$SCRIPT_DIR/.opa-gate-shim" ]; then
+    SHIM_SRC="$SCRIPT_DIR/.opa-gate-shim"
+  elif [ -f "/opt/opa-gate/bin/.opa-gate-shim" ]; then
+    SHIM_SRC="/opt/opa-gate/bin/.opa-gate-shim"
+  else
+    echo "error: cannot find .opa-gate-shim source. Specify with --shim-src" >&2
+    exit 1
+  fi
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "[dry-run] TARGET_DIR=$TARGET_DIR"
+  echo "[dry-run] SHIM_SRC=$SHIM_SRC"
+  echo "[dry-run] ATOMIC=$ATOMIC"
+fi
+
+# Ensure audit log directory exists
+if [ "$DRY_RUN" -eq 0 ] && [ "$TARGET_DIR" = "/opt/opa-gate/bin" ]; then
+  mkdir -p /var/log/opa-gate 2>/dev/null || sudo mkdir -p /var/log/opa-gate 2>/dev/null || true
+  chmod 1777 /var/log/opa-gate 2>/dev/null || sudo chmod 1777 /var/log/opa-gate 2>/dev/null || true
+  touch /var/log/opa-gate/audit.jsonl 2>/dev/null || sudo touch /var/log/opa-gate/audit.jsonl 2>/dev/null || true
+  chmod 666 /var/log/opa-gate/audit.jsonl 2>/dev/null || sudo chmod 666 /var/log/opa-gate/audit.jsonl 2>/dev/null || true
+fi
+
+# Determine working population dir
+WORK_DIR="$TARGET_DIR"
+if [ "$ATOMIC" -eq 1 ]; then
+  if [ -z "$STAGING_DIR" ]; then
+    STAGING_DIR="${TARGET_DIR}.staging.$$"
+  fi
+  WORK_DIR="$STAGING_DIR"
+fi
+
+if [ "$DRY_RUN" -eq 0 ]; then
+  mkdir -p "$WORK_DIR"
+  cp "$SHIM_SRC" "$WORK_DIR/.opa-gate-shim"
+  chmod 755 "$WORK_DIR/.opa-gate-shim"
+fi
+
+# Scan source directories: order determines precedence (/usr/local/bin > /usr/bin > /usr/local/sbin > /usr/sbin)
+SOURCE_DIRS=("/usr/local/bin" "/usr/bin" "/usr/local/sbin" "/usr/sbin")
+SKIPPED_BINARIES=("sudo" "pi-opa-net" "opa" "bun" ".opa-gate-shim")
+
+is_skipped() {
+  local b="$1"
+  if [[ "$b" == .* ]]; then
+    return 0
+  fi
+  for s in "${SKIPPED_BINARIES[@]}"; do
+    if [ "$b" = "$s" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+COUNT=0
+for sdir in "${SOURCE_DIRS[@]}"; do
+  [ -d "$sdir" ] || continue
+  # Don't scan target or staging dir if it happens to be in SOURCE_DIRS
+  [ "$sdir" = "$TARGET_DIR" ] && continue
+  [ "$sdir" = "$WORK_DIR" ] && continue
+
+  for item in "$sdir"/*; do
+    [ -e "$item" ] || continue
+    [ -f "$item" ] || [ -L "$item" ] || continue
+    [ -x "$item" ] || continue
+
+    bin_name="$(basename "$item")"
+    if is_skipped "$bin_name"; then
+      continue
+    fi
+
+    # Check if already created in WORK_DIR
+    if [ -e "$WORK_DIR/$bin_name" ] || [ -L "$WORK_DIR/$bin_name" ]; then
+      continue
+    fi
+
+    if [ "$DRY_RUN" -eq 0 ]; then
+      ln -s .opa-gate-shim "$WORK_DIR/$bin_name"
+    fi
+    COUNT=$((COUNT + 1))
+  done
+done
+
+# If atomic, swap staging dir to target dir
+if [ "$ATOMIC" -eq 1 ] && [ "$DRY_RUN" -eq 0 ]; then
+  # Atomic rename using mv -T if supported, else rename
+  BACKUP_DIR="${TARGET_DIR}.old.$$"
+  if [ -d "$TARGET_DIR" ]; then
+    mv "$TARGET_DIR" "$BACKUP_DIR"
+    mv "$WORK_DIR" "$TARGET_DIR"
+    rm -rf "$BACKUP_DIR"
+  else
+    mv "$WORK_DIR" "$TARGET_DIR"
+  fi
+fi
+
+echo "opa-gate-populate: populated $COUNT executable shims into $TARGET_DIR"

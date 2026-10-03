@@ -1,0 +1,127 @@
+#!/bin/bash
+# .opa-gate-shim — universal shell gate dispatch shim
+# Zero-dep, boot-safe, fail-open on engine error.
+# Rulings: ALL shells, ALL binaries, ALL users (incl. root).
+# Only minted unlock-keys override.
+
+set -o pipefail 2>/dev/null || true
+
+NAME="${0##*/}"
+
+# 1. Boot safety / recursion guard
+if [ "${OPA_GATE_INTERNAL:-0}" = "1" ]; then
+  for dir in /usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
+    if [ "$dir" != "/opt/opa-gate/bin" ] && [ -x "$dir/$NAME" ]; then
+      exec "$dir/$NAME" "$@"
+    fi
+  done
+  echo "opa-gate: $NAME: command not found" >&2
+  exit 127
+fi
+
+ORIG_PATH="$PATH"
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+export OPA_GATE_INTERNAL=1
+
+# 2. Resolve the REAL binary via fixed path table (NEVER re-searching PATH)
+REAL_BIN=""
+for dir in /usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
+  if [ -x "$dir/$NAME" ]; then
+    REAL_BIN="$dir/$NAME"
+    break
+  fi
+done
+
+if [ -z "$REAL_BIN" ]; then
+  echo "bash: $NAME: command not found" >&2
+  exit 127
+fi
+
+# 3. Fast-path check: internal and exempt binaries (sudo recursion prevention)
+if [ "$NAME" = "sudo" ] || [ "$NAME" = "pi-opa-net" ] || [ "$NAME" = "opa" ] || [ "$NAME" = "bun" ]; then
+  PATH="$ORIG_PATH"
+  unset OPA_GATE_INTERNAL
+  exec "$REAL_BIN" "$@"
+fi
+
+# 4. Engine CLI resolution
+ENGINE_CLI=""
+if [ -x "/opt/opa-gate/engine/bin/pi-opa-net" ]; then
+  ENGINE_CLI="/opt/opa-gate/engine/bin/pi-opa-net"
+elif [ -x "/usr/local/bin/pi-opa-net" ]; then
+  ENGINE_CLI="/usr/local/bin/pi-opa-net"
+elif command -v pi-opa-net >/dev/null 2>&1; then
+  ENGINE_CLI="$(command -v pi-opa-net)"
+fi
+
+# Fail-open if engine is missing or unexecutable
+if [ -z "$ENGINE_CLI" ]; then
+  PATH="$ORIG_PATH"
+  unset OPA_GATE_INTERNAL
+  exec "$REAL_BIN" "$@"
+fi
+
+# 5. Format command for evaluation
+CMD_STR=$(printf '%q ' "$NAME" "$@")
+
+# 6. Unlock-key seam (ruling / P1): pass through OPA_UNLOCK* / --unlock
+UNLOCK_ARGS=()
+if [ -n "$OPA_UNLOCK_KEY" ]; then
+  UNLOCK_ARGS+=(--unlock "$OPA_UNLOCK_KEY")
+fi
+if [ -n "$OPA_UNLOCK_KEYS" ]; then
+  IFS=',' read -ra ADDR <<< "$OPA_UNLOCK_KEYS"
+  for k in "${ADDR[@]}"; do
+    [ -n "$k" ] && UNLOCK_ARGS+=(--unlock "$k")
+  done
+fi
+if [ -n "$PIOPANET_UNLOCK_KEYS" ]; then
+  IFS=',' read -ra ADDR <<< "$PIOPANET_UNLOCK_KEYS"
+  for k in "${ADDR[@]}"; do
+    [ -n "$k" ] && UNLOCK_ARGS+=(--unlock "$k")
+  done
+fi
+
+# 7. Evaluate command with hard timeout (500ms boot-safety requirement)
+AUDIT_LOG="/var/log/opa-gate/audit.jsonl"
+EVAL_OUT=""
+EVAL_EXIT=0
+
+TIMEOUT_BIN=""
+for t in /usr/bin/timeout /bin/timeout; do
+  if [ -x "$t" ]; then
+    TIMEOUT_BIN="$t"
+    break
+  fi
+done
+
+if [ -n "$TIMEOUT_BIN" ]; then
+  EVAL_OUT=$("$TIMEOUT_BIN" 0.5s "$ENGINE_CLI" eval "$CMD_STR" --json "${UNLOCK_ARGS[@]}" 2>/dev/null)
+  EVAL_EXIT=$?
+else
+  EVAL_OUT=$("$ENGINE_CLI" eval "$CMD_STR" --json "${UNLOCK_ARGS[@]}" 2>/dev/null)
+  EVAL_EXIT=$?
+fi
+
+# 8. Audit logging (LD-Y2): append decision JSONL if non-empty
+if [ -n "$EVAL_OUT" ] && [ -d "/var/log/opa-gate" ]; then
+  echo "$EVAL_OUT" >> "$AUDIT_LOG" 2>/dev/null || true
+fi
+
+# 9. Handle Decision
+if [ "$EVAL_EXIT" -eq 2 ]; then
+  SUMMARY=""
+  if [[ "$EVAL_OUT" =~ \"summary\":\"([^\"]+)\" ]]; then
+    SUMMARY="${BASH_REMATCH[1]}"
+  fi
+  if [ -z "$SUMMARY" ]; then
+    SUMMARY="BLOCKED by opa-gate: $NAME $*"
+  fi
+  echo "$SUMMARY" >&2
+  exit 2
+fi
+
+# Exit 0 (allow) or timeout/failure (fail-open)
+PATH="$ORIG_PATH"
+unset OPA_GATE_INTERNAL
+exec "$REAL_BIN" "$@"
