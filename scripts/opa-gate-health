@@ -7,6 +7,7 @@ Also triggers log cap maintenance.
 """
 
 import datetime
+import hashlib
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import subprocess
 import sys
 
 ENGINE_BIN = "/opt/opa-gate/engine/bin/pi-opa-net"
+POLICY_FILE = os.environ.get("OPA_GATE_POLICY_FILE", "/opt/opa-gate/engine/policy/safety.rego")
 SLACK_CHANNEL = "C0C42KW561E"
 STATUS_FILE = "/var/log/opa-gate/health.status"
 AUDIT_LOG = "/var/log/opa-gate/audit.jsonl"
@@ -21,6 +23,17 @@ LOG_CAP_SCRIPT = "/opt/opa-gate/scripts/opa_gate_log_cap.py"
 
 PINNED_RULEBOOK_DIGEST = "07f500d393d2"
 EXPECTED_RULEBOOK_DIGEST = os.environ.get("OPA_GATE_EXPECTED_DIGEST", PINNED_RULEBOOK_DIGEST)
+
+
+def compute_policy_digest(policy_path: str = POLICY_FILE) -> str:
+    """Compute first 12 hex characters of SHA-256 of the policy file."""
+    if not os.path.exists(policy_path):
+        return ""
+    try:
+        with open(policy_path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:12]
+    except Exception:
+        return ""
 
 
 def send_slack_alert(message: str) -> bool:
@@ -69,14 +82,22 @@ def run_health_check() -> int:
                 metadata = data.get("metadata", {})
                 emitted_digest = metadata.get("rulebook_digest")
 
+                computed_digest = compute_policy_digest(POLICY_FILE)
+                expected_digest = EXPECTED_RULEBOOK_DIGEST
+
                 if decision != "deny" or not any(
                     r.get("rule_id") == "block-git-stash-mutations" for r in reasons
                 ):
                     error_msg = f"Invalid decision payload: decision={decision}"
-                elif emitted_digest != EXPECTED_RULEBOOK_DIGEST:
+                elif emitted_digest != expected_digest:
                     error_msg = (
-                        f"Rulebook digest mismatch: emitted '{emitted_digest}', "
-                        f"expected '{EXPECTED_RULEBOOK_DIGEST}'"
+                        f"Rulebook digest mismatch: engine emitted '{emitted_digest}', "
+                        f"expected '{expected_digest}'"
+                    )
+                elif computed_digest and computed_digest != expected_digest:
+                    error_msg = (
+                        f"Canonical policy file digest mismatch: computed '{computed_digest}', "
+                        f"expected '{expected_digest}'"
                     )
                 else:
                     is_healthy = True
@@ -100,6 +121,8 @@ def run_health_check() -> int:
                         "duration_ms": duration_ms,
                         "engine_bin": cmd_bin,
                         "rulebook_digest": emitted_digest,
+                        "expected_digest": expected_digest,
+                        "policy_digest": computed_digest,
                     },
                     f,
                     indent=2,
