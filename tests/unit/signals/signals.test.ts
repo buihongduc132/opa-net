@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+import { execSync as execSyncRaw } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ParsedCommand } from '../../../src/parser/types.ts';
 import { EnvSignals } from '../../../src/signals/EnvSignals.ts';
 import { RepoSignals } from '../../../src/signals/RepoSignals.ts';
@@ -40,6 +44,119 @@ describe('RepoSignals', () => {
     const collector = new RepoSignals();
     const result = collector.collect(makeCtx('git', 'status', [], '/tmp/nonexistent-repo'));
     expect(result.available).toBe(false);
+  });
+
+  it('detects standalone sibling clones: shortest name is main', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'repo-signals-siblings-'));
+    const mainDir = join(tmp, 'app-config');
+    const wtDir = join(tmp, 'app-config-wt');
+    mkdirSync(mainDir);
+    mkdirSync(wtDir);
+    execSyncRaw('git init -b main', { cwd: mainDir, stdio: 'ignore' });
+    execSyncRaw('git init -b main', { cwd: wtDir, stdio: 'ignore' });
+
+    try {
+      const collector = new RepoSignals();
+      const mainResult = collector.collect(makeCtx('git', 'status', [], mainDir));
+      expect(mainResult.available).toBe(true);
+      expect(mainResult.is_main_worktree).toBe(true);
+      expect(mainResult.protected).toBe(true);
+
+      const wtResult = collector.collect(makeCtx('git', 'status', [], wtDir));
+      expect(wtResult.available).toBe(true);
+      expect(wtResult.is_main_worktree).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('faked-clock boundary tests: 2d23h is protected, 3d1h is not protected (R2)', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'repo-signals-clock-'));
+    const mainDir = join(tmp, 'my-repo');
+    const wtDir = join(tmp, 'my-repo-wt');
+    mkdirSync(mainDir);
+    mkdirSync(wtDir);
+    execSyncRaw('git init -b main', { cwd: mainDir, stdio: 'ignore' });
+    execSyncRaw('git init -b main', { cwd: wtDir, stdio: 'ignore' });
+
+    const t0 = 1700000000000;
+    const fs = require('node:fs') as typeof import('node:fs');
+    fs.utimesSync(wtDir, new Date(t0), new Date(t0));
+
+    try {
+      // 2 days 23 hours later: 2 * 86400 + 23 * 3600 = 255600 seconds
+      const clock2d23h = () => t0 + (2 * 24 + 23) * 3600 * 1000;
+      const collectorYoung = new RepoSignals({ now: clock2d23h });
+      const youngRes = collectorYoung.collect(makeCtx('git', 'status', [], wtDir));
+      expect(youngRes.is_main_worktree).toBe(false);
+      expect(youngRes.protected).toBe(true);
+      expect(youngRes.age_days).toBeLessThan(3);
+
+      // 3 days 1 hour later: 3 * 86400 + 1 * 3600 = 262800 seconds
+      const clock3d1h = () => t0 + (3 * 24 + 1) * 3600 * 1000;
+      const collectorOld = new RepoSignals({ now: clock3d1h });
+      const oldRes = collectorOld.collect(makeCtx('git', 'status', [], wtDir));
+      expect(oldRes.is_main_worktree).toBe(false);
+      expect(oldRes.protected).toBe(false);
+      expect(oldRes.age_days).toBeGreaterThan(3);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('reads age from linked worktree logs/HEAD reflog', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'repo-signals-linked-'));
+    const mainDir = join(tmp, 'repo');
+    mkdirSync(mainDir);
+    execSyncRaw('git init -b main', { cwd: mainDir, stdio: 'ignore' });
+    execSyncRaw('git config user.email test@test.com', { cwd: mainDir, stdio: 'ignore' });
+    execSyncRaw('git config user.name test', { cwd: mainDir, stdio: 'ignore' });
+    writeFileSync(join(mainDir, 'file.txt'), 'init');
+    execSyncRaw('git -c core.hooksPath=/dev/null add file.txt && git -c core.hooksPath=/dev/null commit --no-verify -m init', { cwd: mainDir, stdio: 'ignore' });
+
+    const wtDir = join(tmp, 'repo-wt');
+    execSyncRaw(`git worktree add ${wtDir} -b wt-branch`, { cwd: mainDir, stdio: 'ignore' });
+
+    try {
+      const collector = new RepoSignals();
+      const wtRes = collector.collect(makeCtx('git', 'status', [], wtDir));
+      expect(wtRes.available).toBe(true);
+      expect(wtRes.is_main_worktree).toBe(false);
+      expect(wtRes.protected).toBe(true);
+      expect(wtRes.age_days).toBeLessThan(1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('honors PIOPANET_PROTECT_DAYS override', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'repo-signals-knob-'));
+    const mainDir = join(tmp, 'repo');
+    const wtDir = join(tmp, 'repo-wt');
+    mkdirSync(mainDir);
+    mkdirSync(wtDir);
+    execSyncRaw('git init -b main', { cwd: mainDir, stdio: 'ignore' });
+    execSyncRaw('git init -b main', { cwd: wtDir, stdio: 'ignore' });
+
+    const t0 = 1700000000000;
+    const fs = require('node:fs') as typeof import('node:fs');
+    fs.utimesSync(wtDir, new Date(t0), new Date(t0));
+
+    const clock2d = () => t0 + 2 * 86400 * 1000;
+    const prevEnv = process.env.PIOPANET_PROTECT_DAYS;
+    try {
+      delete process.env.PIOPANET_PROTECT_DAYS;
+      const cDefault = new RepoSignals({ now: clock2d });
+      expect(cDefault.collect(makeCtx('git', 'status', [], wtDir)).protected).toBe(true);
+
+      process.env.PIOPANET_PROTECT_DAYS = '1';
+      const c1Day = new RepoSignals({ now: clock2d });
+      expect(c1Day.collect(makeCtx('git', 'status', [], wtDir)).protected).toBe(false);
+    } finally {
+      if (prevEnv !== undefined) process.env.PIOPANET_PROTECT_DAYS = prevEnv;
+      else delete process.env.PIOPANET_PROTECT_DAYS;
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

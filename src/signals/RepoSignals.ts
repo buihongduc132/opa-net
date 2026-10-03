@@ -1,32 +1,54 @@
 /**
- * Repo signals — is_main_worktree detection (LD4, D9).
+ * Repo signals — is_main_worktree and protected detection (LD4, D9, F2, R2).
  *
- * Distinguishes parent (main) worktree from linked (sub-)worktrees via
- * `git rev-parse --git-dir` vs `git rev-parse --git-common-dir`.
+ * Distinguishes parent (main) worktree from linked (sub-)worktrees and young
+ * worktrees:
+ *   - Git-native: `git rev-parse --git-dir` vs `git rev-parse --git-common-dir`.
+ *     Different → linked worktree.
+ *   - Standalone sibling clones: among siblings sharing repo name prefix
+ *     (with separator `-`, `_`, `.`), shortest basename = main.
+ *   - Young worktrees (R2): worktree age < PIOPANET_PROTECT_DAYS (default 3)
+ *     is protected (same as main). Age is read from the first entry of the
+ *     worktree's own HEAD reflog (`logs/HEAD`), fallback dir mtime.
+ *   - Single policy input: `signals.repo.protected` = is_main_worktree || age < protect_days.
  *
- *   - Same value → main worktree → branch-target-allowlist fires.
- *   - Different   → linked worktree → rule skips (sub-worktrees roam free).
- *
- * Also collects `signals.repo.name` via `git rev-parse --show-toplevel` → basename.
  * Fail-open on any error.
  */
 
 import { execFileSync } from 'node:child_process';
-import { basename } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import type { SignalCollector, SignalContext } from './types.ts';
 
 export interface RepoSignal {
   readonly available: boolean;
   readonly is_main_worktree: boolean | null;
+  readonly protected: boolean | null;
+  readonly age_days: number | null;
   readonly name: string | null;
+}
+
+export interface RepoSignalsOptions {
+  /** Injectable clock returning unix timestamp in ms for deterministic tests. */
+  readonly now?: () => number;
 }
 
 export class RepoSignals implements SignalCollector {
   readonly name = 'repo';
+  private readonly options?: RepoSignalsOptions;
+
+  constructor(options?: RepoSignalsOptions) {
+    this.options = options;
+  }
 
   collect(ctx: SignalContext): RepoSignal {
     if (ctx.parsed.program !== 'git') {
-      return { available: false, is_main_worktree: null, name: null };
+      return {
+        available: false,
+        is_main_worktree: null,
+        protected: null,
+        age_days: null,
+        name: null,
+      };
     }
 
     try {
@@ -51,16 +73,16 @@ export class RepoSignals implements SignalCollector {
       }
 
       // Resolve both to absolute paths for comparison.
-      // --git-dir is relative to cwd; --git-common-dir may also be relative.
-      const { resolve } = require('node:path') as typeof import('node:path');
+      const fs = require('node:fs') as typeof import('node:fs');
       const absGitDir = resolve(ctx.cwd, gitDir);
       const absCommonDir = resolve(ctx.cwd, commonDir);
 
-      const isMain = absGitDir === absCommonDir;
+      const gitNativeIsMain = absGitDir === absCommonDir;
 
       let name: string | null = null;
+      let toplevel: string | null = null;
       try {
-        const toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+        toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], {
           cwd: ctx.cwd,
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
@@ -71,9 +93,138 @@ export class RepoSignals implements SignalCollector {
         // name stays null.
       }
 
-      return { available: true, is_main_worktree: isMain, name };
+      // Main-dir rule (F2):
+      // - Linked worktree -> git-native (absGitDir !== absCommonDir means linked worktree, NOT main).
+      // - Standalone clone -> among sibling dirs with same repo-name prefix (same parent), SHORTEST basename = main.
+      let isMain = gitNativeIsMain;
+
+      if (gitNativeIsMain && toplevel && name) {
+        try {
+          const parentDir = dirname(toplevel);
+          let remoteRepoName: string | null = null;
+          try {
+            const remoteUrl = execFileSync('git', ['config', '--get', 'remote.origin.url'], {
+              cwd: ctx.cwd,
+              encoding: 'utf8',
+              stdio: ['ignore', 'pipe', 'ignore'],
+              timeout: 250,
+            }).trim();
+            if (remoteUrl) {
+              const match =
+                remoteUrl.match(/\/([^/]+?)(?:\.git)?$/) || remoteUrl.match(/:([^/]+?)(?:\.git)?$/);
+              if (match) remoteRepoName = match[1];
+            }
+          } catch {
+            // no remote
+          }
+
+          const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+          const siblings = entries
+            .filter((e) => e.isDirectory() || e.isSymbolicLink())
+            .map((e) => e.name);
+
+          const family = siblings
+            .filter((s) => {
+              if (s === name) return true;
+              if (s.startsWith(name + '-') || s.startsWith(name + '_') || s.startsWith(name + '.'))
+                return true;
+              if (name.startsWith(s + '-') || name.startsWith(s + '_') || name.startsWith(s + '.'))
+                return true;
+              if (remoteRepoName) {
+                if (
+                  s === remoteRepoName ||
+                  s.startsWith(remoteRepoName + '-') ||
+                  s.startsWith(remoteRepoName + '_') ||
+                  s.startsWith(remoteRepoName + '.')
+                ) {
+                  return true;
+                }
+              }
+              return false;
+            })
+            .filter((s) => {
+              return fs.existsSync(resolve(parentDir, s, '.git'));
+            });
+
+          if (family.length > 0) {
+            family.sort((a, b) => a.length - b.length || a.localeCompare(b));
+            isMain = name === family[0];
+          }
+        } catch {
+          isMain = gitNativeIsMain;
+        }
+      }
+
+      // Age calculation (R2):
+      // Age = FIRST entry of .git/worktrees/<id>/logs/HEAD (unix ts field), fallback dir mtime.
+      // Sibling-clone lanes: age = dir mtime.
+      const nowMs = this.options?.now ? this.options.now() : Date.now();
+      let createdMs: number | null = null;
+
+      if (!gitNativeIsMain) {
+        // Linked worktree: check logs/HEAD inside absGitDir (which is .git/worktrees/<id>)
+        const logsHead = resolve(absGitDir, 'logs/HEAD');
+        if (fs.existsSync(logsHead)) {
+          try {
+            const content = fs.readFileSync(logsHead, 'utf8');
+            const lines = content.split('\n').filter((l: string) => l.trim().length > 0);
+            if (lines.length > 0) {
+              const firstLine = lines[0];
+              // Format: <old> <new> <name> <<email>> <unix-ts> <tz>...
+              const match = firstLine.match(/>\s+(\d{9,12})\s+[-+]?\d{4}/);
+              if (match) {
+                const tsSec = Number.parseInt(match[1], 10);
+                if (!Number.isNaN(tsSec) && tsSec > 0) {
+                  createdMs = tsSec * 1000;
+                }
+              }
+            }
+          } catch {
+            // fallback below
+          }
+        }
+      }
+
+      // Fallback if not determined from logs/HEAD:
+      if (createdMs === null) {
+        try {
+          const targetDir = toplevel ?? ctx.cwd;
+          const stat = fs.statSync(targetDir);
+          createdMs = stat.mtimeMs;
+        } catch {
+          createdMs = null;
+        }
+      }
+
+      let ageDays: number | null = null;
+      if (createdMs !== null) {
+        ageDays = Number(((nowMs - createdMs) / (1000 * 86400)).toFixed(2));
+        if (ageDays < 0) ageDays = 0;
+      }
+
+      // Knob PIOPANET_PROTECT_DAYS (or PIOPANET_WORKTREE_PROTECT_DAYS), default 3.
+      const envDays =
+        process.env.PIOPANET_PROTECT_DAYS || process.env.PIOPANET_WORKTREE_PROTECT_DAYS;
+      const protectDays = envDays ? Number.parseFloat(envDays) : 3;
+
+      // Single policy input: signals.repo.protected (bool) = is_main_worktree || age < protect_days.
+      const isProtected = isMain || (ageDays !== null && ageDays < protectDays);
+
+      return {
+        available: true,
+        is_main_worktree: isMain,
+        protected: isProtected,
+        age_days: ageDays,
+        name,
+      };
     } catch {
-      return { available: false, is_main_worktree: null, name: null };
+      return {
+        available: false,
+        is_main_worktree: null,
+        protected: null,
+        age_days: null,
+        name: null,
+      };
     }
   }
 }
