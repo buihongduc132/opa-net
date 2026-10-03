@@ -3,6 +3,8 @@ description: |
   Implementation plans for opa-net gates and deploys. Each plan defines DOD,
   escape matrix, steps with acceptance, and handoff.
 documents:
+  - file: 2026-10-03-universal-shell-gate.md
+    title: Universal Shell Gate — PATH shim, all binaries, all processes (P0–P8)
   - file: 2026-10-03-branch-gate-main-dir.md
     title: Fix branch-change gate (GROUP G) — make it actually fire in main dirs
   - file: ban-shallow-heavy-scan.md

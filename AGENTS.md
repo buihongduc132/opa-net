@@ -19,9 +19,21 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
+│  Universal Shell Gate (Fleet-wide Wall)                     │
+│  - /opt/opa-gate/bin prepended to PATH across all contexts  │
+│  - Dispatch shim (.opa-gate-shim) intercepts all binaries   │
+│  - Root & sudo gated via secure_path                        │
+│  - Evaluates via OPA engine (<100ms perf, fast-path cached) │
+│  - Daily populate timer + 5min health timer + Slack alert   │
+│  - Audit log /var/log/opa-gate/audit.jsonl capped at 10M    │
+└─────────────────────────────────────────────────────────────┘
+                            ↑
+                            │ UNDERLIES
+                            │
+┌─────────────────────────────────────────────────────────────┐
 │  opa-net (framework)                                        │
 │  - OPA/Rego engine                                          │
-│  - 77-rule catalog (cc-safety-net parity + GROUP I/J + GROUP K)       │
+│  - 77-rule catalog (cc-safety-net parity + GROUP I/J/K)     │
 │  - Unlock-key capability system                             │
 │  - Output: decision-output.v1 schema                        │
 │  - Fail-mode: open/closed                                   │
@@ -30,7 +42,7 @@
                             │ ADAPT
                             │
 ┌─────────────────────────────────────────────────────────────┐
-│  Plugin: pi-opa-net / hermes-opa-net / ...                  │
+│  Plugin: pi-opa-net / hermes-opa-net / ... (UX Layer)       │
 │  - Translate opa-net output → safety-net format             │
 │  - Implement agent-specific hook interface                  │
 │  - Wire into agent's extension system                       │
@@ -94,16 +106,25 @@ pi-opa-net eval "git stash pop" --json
 pi-opa-net unlock-key block-git-stash-mutations
 pi-opa-net unlock-key --list
 
-# Watchdog (S8 reflog monitor)
+# Watchdog & Health Monitoring
 python3 scripts/branch_drift_watchdog.py --once
 python3 scripts/branch_drift_watchdog.py --retro 7
 systemctl --user status opa-net-branch-drift-watchdog.timer
+sudo systemctl status opa-gate-health.timer opa-gate-populate.timer
+/opt/opa-gate/scripts/opa-gate-health
+tail -n 20 /var/log/opa-gate/audit.jsonl
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
+| `/opt/opa-gate/bin` | Universal shell gate directory prepended to system-wide PATH |
+| `scripts/.opa-gate-shim` | Universal dispatch shim intercepting all executable invocations |
+| `scripts/opa-gate-populate` | Populates `/opt/opa-gate/bin` executable symlinks (atomic swap) |
+| `scripts/opa-gate-health` | 5min health check smoke testing engine, alerts to Slack `#opa-net` |
+| `scripts/opa_gate_log_cap.py` | Enforces 10MB cap and rotation (max 3 files) on `audit.jsonl` |
+| `/etc/systemd/system/opa-gate-*` | Systemd units for gate population and health monitoring |
 | `src/cli/run.ts` | CLI entrypoint, orchestrates parse → evaluate → build → emit |
 | `src/engine/OpaCliEngine.ts` | OPA subprocess wrapper, fail-mode handling |
 | `src/parser/CommandParser.ts` | Hybrid parser (ShellQuote AST + regex fallback) |
@@ -112,8 +133,8 @@ systemctl --user status opa-net-branch-drift-watchdog.timer
 | `src/audit/AuditSink.ts` | Audit sink interface (NoOpSink default) |
 | `policy/safety.rego` | OPA/Rego policy (42 rules) |
 | `schemas/decision-output.v1.json` | Output schema (additive, stays v1) |
-| `scripts/branch_drift_watchdog.py` | S8 reflog watchdog for branch drift in protected dirs |
-| `scripts/systemd/` | User systemd service + timer (`opa-net-branch-drift-watchdog`) |
+| `scripts/branch_drift_watchdog.py` | S8 reflog watchdog for branch drift, deny-storms, and residual detection |
+| `scripts/systemd/` | System and user systemd service + timer units |
 
 ## Locked Decisions
 

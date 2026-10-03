@@ -3,6 +3,8 @@ description: |
   Investigation artifacts for opa-net. Each dir = one dated investigation with
   evidence citations (files, commands, live repro output).
 documents:
+  - dir: 2026-10-03-universal-shell-gate
+    title: Universal Shell Gate implementation — perf, 10-context matrix, boot-safety, E1-E10 matrix, health and watchdog
   - dir: 2026-10-03-branch-gate-not-firing
     title: Why the branch-change gate never fires (ajv fail-open, main-dir spec mismatch, classifier holes)
   - dir: 2026-09-13-dev-stage-deploy-proof
