@@ -463,24 +463,16 @@ def scan_incremental(
     return events, updated_state
 
 
-def send_slack_alert(
-    event: DriftEvent,
+def send_slack_message(
+    msg_text: str,
     channel_id: str,
     thread_ts: Optional[str] = None,
 ) -> Optional[str]:
-    """Send Slack alert using slackcli. Returns delivered message ts or None."""
+    """Send arbitrary message using slackcli. Returns delivered message ts or None."""
     slackcli_path = shutil.which("slackcli") or "/home/bhd/.local/bin/slackcli"
     if not os.path.exists(slackcli_path):
         sys.stderr.write(f"slackcli not found at {slackcli_path}\n")
         return None
-
-    msg_text = (
-        f"🚨 *[opa-net watchdog]* Branch drift detected in protected directory!\n"
-        f"• *Target*: `{event.target.target_path}` ({event.target.kind})\n"
-        f"• *Branch Change*: `{event.from_ref}` → `{event.to_ref}`\n"
-        f"• *Action*: `{event.raw_msg}`\n"
-        f"• *Timestamp*: {event.iso_time()} (unix: {event.ts})"
-    )
 
     cmd = [
         slackcli_path,
@@ -497,7 +489,6 @@ def send_slack_alert(
 
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        # Parse JSON output from stdout
         raw_out = res.stdout
         idx = raw_out.find("{")
         idx_end = raw_out.rfind("}")
@@ -509,6 +500,22 @@ def send_slack_alert(
     except Exception as e:
         sys.stderr.write(f"Error executing slackcli: {e}\n")
     return None
+
+
+def send_slack_alert(
+    event: DriftEvent,
+    channel_id: str,
+    thread_ts: Optional[str] = None,
+) -> Optional[str]:
+    """Send Slack alert for branch drift using slackcli."""
+    msg_text = (
+        f"🚨 *[opa-net watchdog]* Branch drift detected in protected directory!\n"
+        f"• *Target*: `{event.target.target_path}` ({event.target.kind})\n"
+        f"• *Branch Change*: `{event.from_ref}` → `{event.to_ref}`\n"
+        f"• *Action*: `{event.raw_msg}`\n"
+        f"• *Timestamp*: {event.iso_time()} (unix: {event.ts})"
+    )
+    return send_slack_message(msg_text, channel_id, thread_ts)
 
 
 def append_watchdog_log(log_path: str, event: DriftEvent, slack_ts: Optional[str] = None) -> None:
@@ -525,6 +532,180 @@ def append_watchdog_log(log_path: str, event: DriftEvent, slack_ts: Optional[str
     with open(log_path, "a", encoding="utf-8") as fp:
         fp.write(line)
         fp.flush()
+
+
+def append_custom_watchdog_log(log_path: str, msg: str, slack_ts: Optional[str] = None) -> None:
+    """Append custom alert record to watchdog.log."""
+    p = Path(log_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    ts_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    slack_info = f", slack_ts={slack_ts}" if slack_ts else ""
+    line = f"[{ts_str}] ALERT: {msg}{slack_info}\n"
+    with open(log_path, "a", encoding="utf-8") as fp:
+        fp.write(line)
+        fp.flush()
+
+
+def parse_iso_ts(iso_str: str) -> float:
+    try:
+        dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.timestamp()
+    except Exception:
+        return time.time()
+
+
+def scan_audit_log_for_storms_and_residuals(
+    audit_log_path: str,
+    state: dict,
+    channel_id: str,
+    thread_ts: Optional[str],
+    dry_run: bool,
+    log_path: str,
+) -> Tuple[List[dict], List[dict], dict]:
+    """
+    Scan /var/log/opa-gate/audit.jsonl incrementally:
+    1. Deny-storms: >=5 denys in 60s from same PID/agent or caller.
+    2. Absolute-path git invocations (e.g. /usr/bin/git).
+    """
+    storm_alerts = []
+    residual_alerts = []
+    updated_state = dict(state)
+
+    if not os.path.exists(audit_log_path):
+        return storm_alerts, residual_alerts, updated_state
+
+    current_size = os.path.getsize(audit_log_path)
+    last_offset = state.get("audit_offset", 0)
+    if last_offset > current_size:
+        last_offset = 0
+
+    new_denials = []
+    new_residuals = []
+
+    try:
+        with open(audit_log_path, "r", encoding="utf-8", errors="replace") as fp:
+            fp.seek(last_offset)
+            for line in fp:
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                try:
+                    rec = json.loads(line_str)
+                except Exception:
+                    continue
+
+                ts = parse_iso_ts(rec.get("evaluated_at", ""))
+                decision = rec.get("decision", "")
+                raw_cmd = rec.get("input", {}).get("raw", "")
+                reasons = rec.get("reasons") or [{}]
+                rule_id = reasons[0].get("rule_id", "unknown") if reasons else "unknown"
+                cwd = rec.get("signals", {}).get("env", {}).get("cwd", "")
+
+                if decision == "deny":
+                    new_denials.append({
+                        "ts": ts,
+                        "rule": rule_id,
+                        "cwd": cwd,
+                        "raw": raw_cmd,
+                    })
+
+                # Check for absolute-path git residuals in raw command or program
+                if re.search(r"(?:^|[\s;`|&])(/usr/bin/git|/bin/git|/usr/local/bin/git)\b", raw_cmd):
+                    new_residuals.append({
+                        "ts": ts,
+                        "command": raw_cmd,
+                        "cwd": cwd,
+                    })
+
+            new_offset = fp.tell()
+            updated_state["audit_offset"] = new_offset
+    except Exception as e:
+        sys.stderr.write(f"Error reading audit log {audit_log_path}: {e}\n")
+        return storm_alerts, residual_alerts, updated_state
+
+    # Detect Deny-storms (>=5 denys in 60s)
+    if len(new_denials) >= 5:
+        new_denials.sort(key=lambda d: d["ts"])
+        for i in range(len(new_denials)):
+            window = [d for d in new_denials[i:] if d["ts"] - new_denials[i]["ts"] <= 60.0]
+            if len(window) >= 5:
+                sample_cmds = [w["raw"] for w in window[:3]]
+                rules = list(set(w["rule"] for w in window))
+                cwd = window[0]["cwd"]
+                storm_event = {
+                    "count": len(window),
+                    "window_s": max(1, int(window[-1]["ts"] - window[0]["ts"])),
+                    "cwd": cwd,
+                    "rules": rules,
+                    "samples": sample_cmds,
+                    "ts": window[-1]["ts"],
+                }
+                storm_alerts.append(storm_event)
+                break
+
+    for res in new_residuals:
+        residual_alerts.append(res)
+
+    if not dry_run:
+        for sa in storm_alerts:
+            msg = (
+                f"🚨 *[opa-gate watchdog]* Deny-storm detected! (Repeated gate denials)\n"
+                f"• *Count*: {sa['count']} denials within {sa['window_s']}s window\n"
+                f"• *Target CWD*: `{sa['cwd']}`\n"
+                f"• *Violated Rules*: `{', '.join(sa['rules'])}`\n"
+                f"• *Sample Commands*:\n" + "\n".join(f"  - `{c[:100]}`" for c in sa["samples"])
+            )
+            delivered_ts = send_slack_message(msg, channel_id, thread_ts)
+            append_custom_watchdog_log(log_path, f"DENY_STORM: {sa['count']} denials in {sa['window_s']}s at {sa['cwd']}", delivered_ts)
+
+        for ra in residual_alerts:
+            msg = (
+                f"⚠️ *[opa-gate watchdog]* Absolute-path git invocation residual detected!\n"
+                f"• *Command*: `{ra['command'][:120]}`\n"
+                f"• *Target CWD*: `{ra['cwd']}`\n"
+                f"• *Bypass Mechanism*: Explicit path bypassed `/opt/opa-gate/bin` shim\n"
+                f"• *Action*: Use standard `git` command or mint unlock key."
+            )
+            delivered_ts = send_slack_message(msg, channel_id, thread_ts)
+            append_custom_watchdog_log(log_path, f"RESIDUAL_PATH: {ra['command']} at {ra['cwd']}", delivered_ts)
+
+    return storm_alerts, residual_alerts, updated_state
+
+
+def scan_running_processes_for_residuals(
+    channel_id: str,
+    thread_ts: Optional[str],
+    dry_run: bool,
+    log_path: str,
+) -> List[dict]:
+    """
+    Check running processes (ps) for direct /usr/bin/git or /bin/git invocations in protected projects.
+    """
+    proc_alerts = []
+    try:
+        res = subprocess.run(["ps", "-eo", "pid,user,args"], capture_output=True, text=True, timeout=5)
+        for line in res.stdout.splitlines()[1:]:
+            parts = line.strip().split(None, 2)
+            if len(parts) < 3:
+                continue
+            pid, user, args = parts[0], parts[1], parts[2]
+            if "branch_drift_watchdog" in args or "run-p5-matrix" in args or "ps -eo" in args:
+                continue
+            if re.search(r"(?:^|[\s;`|&])(/usr/bin/git|/bin/git)\b", args):
+                proc_alerts.append({"pid": pid, "user": user, "args": args})
+                if not dry_run:
+                    msg = (
+                        f"⚠️ *[opa-gate watchdog]* Active residual process running direct git binary!\n"
+                        f"• *PID*: `{pid}` (user: `{user}`)\n"
+                        f"• *Command*: `{args[:120]}`\n"
+                        f"• *Bypass*: Direct binary execution bypasses `/opt/opa-gate/bin`."
+                    )
+                    delivered_ts = send_slack_message(msg, channel_id, thread_ts)
+                    append_custom_watchdog_log(log_path, f"ACTIVE_RESIDUAL_PROC: PID {pid} ({user}): {args}", delivered_ts)
+    except Exception as e:
+        sys.stderr.write(f"Error checking processes: {e}\n")
+    return proc_alerts
+
 
 
 def resolve_log_path(explicit_path: Optional[str]) -> str:
@@ -610,6 +791,16 @@ def main():
         "-v", "--verbose",
         action="store_true",
         help="Verbose stdout output",
+    )
+    parser.add_argument(
+        "--audit-log",
+        default=os.environ.get("OPA_GATE_AUDIT_LOG", "/var/log/opa-gate/audit.jsonl"),
+        help="Path to opa-gate audit log for deny-storm and residual monitoring",
+    )
+    parser.add_argument(
+        "--no-audit-scan",
+        action="store_true",
+        help="Disable scanning audit log for deny-storms and residuals",
     )
 
     args = parser.parse_args()
@@ -724,6 +915,36 @@ def main():
             # 2. Append to watchdog.log
             append_watchdog_log(log_path, ev, delivered_ts)
 
+    # Scan audit log for deny-storms and absolute-path residuals
+    storm_events = []
+    residual_events = []
+    proc_residuals = []
+    if not args.no_audit_scan and args.retro is None:
+        storm_events, residual_events, updated_state = scan_audit_log_for_storms_and_residuals(
+            audit_log_path=args.audit_log,
+            state=updated_state,
+            channel_id=args.slack_channel,
+            thread_ts=args.slack_thread_ts,
+            dry_run=args.dry_run,
+            log_path=log_path,
+        )
+        proc_residuals = scan_running_processes_for_residuals(
+            channel_id=args.slack_channel,
+            thread_ts=args.slack_thread_ts,
+            dry_run=args.dry_run,
+            log_path=log_path,
+        )
+
+        # Enforce log cap on audit log (<10MB max-size=10m max-file=3)
+        if os.path.exists(args.audit_log) and not args.dry_run:
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from opa_gate_log_cap import rotate_log
+                rotate_log(args.audit_log)
+            except Exception as e:
+                if args.verbose:
+                    sys.stderr.write(f"[watchdog] Log cap check: {e}\n")
+
     # Persist state unless dry-run
     if not args.dry_run:
         save_state(args.state_file, updated_state)
@@ -745,12 +966,24 @@ def main():
                 }
                 for ev in events
             ],
+            "deny_storms": storm_events,
+            "residuals": residual_events + proc_residuals,
         }
         print(json.dumps(report, indent=2))
-    elif args.verbose or events:
-        print(f"[watchdog] Scan finished. Checked {len(targets)} targets. Drift events: {len(events)}.")
+    elif args.verbose or events or storm_events or residual_events or proc_residuals:
+        print(
+            f"[watchdog] Scan finished. Checked {len(targets)} targets. "
+            f"Drift events: {len(events)}. Deny-storms: {len(storm_events)}. "
+            f"Residuals: {len(residual_events) + len(proc_residuals)}."
+        )
         for ev in events:
             print(f"  {ev.human_str()}")
+        for sa in storm_events:
+            print(f"  [DENY_STORM] {sa['count']} denials in {sa['window_s']}s (cwd: {sa['cwd']})")
+        for ra in residual_events:
+            print(f"  [RESIDUAL_PATH] {ra['command']}")
+        for pa in proc_residuals:
+            print(f"  [ACTIVE_RESIDUAL_PROC] PID {pa['pid']} ({pa['user']}): {pa['args']}")
 
     return 0
 

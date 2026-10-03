@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""
+scripts/opa-gate-health — Universal Shell Gate health check
+Runs smoke test every 5m: pi-opa-net eval "git stash pop" --json
+On failure -> sends alert to Slack #opa-net (C0C42KW561E) and logs failure.
+Also triggers log cap maintenance.
+"""
+
+import datetime
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+ENGINE_BIN = "/opt/opa-gate/engine/bin/pi-opa-net"
+SLACK_CHANNEL = "C0C42KW561E"
+STATUS_FILE = "/var/log/opa-gate/health.status"
+AUDIT_LOG = "/var/log/opa-gate/audit.jsonl"
+LOG_CAP_SCRIPT = "/opt/opa-gate/scripts/opa_gate_log_cap.py"
+
+
+def send_slack_alert(message: str) -> bool:
+    slackcli = shutil.which("slackcli") or "/home/bhd/.local/bin/slackcli"
+    if not os.path.exists(slackcli):
+        sys.stderr.write(f"slackcli not found at {slackcli}\n")
+        return False
+    try:
+        res = subprocess.run(
+            [slackcli, "messages", "send", "--recipient-id", SLACK_CHANNEL, "--message", message, "--json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return res.returncode == 0
+    except Exception as e:
+        sys.stderr.write(f"Failed to send Slack alert: {e}\n")
+        return False
+
+
+def run_health_check() -> int:
+    cmd_bin = os.environ.get("OPA_GATE_ENGINE_BIN") or (ENGINE_BIN if os.path.exists(ENGINE_BIN) else (shutil.which("pi-opa-net") or "pi-opa-net"))
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    start_time = datetime.datetime.now()
+
+    error_msg = ""
+    is_healthy = False
+
+    try:
+        proc = subprocess.run(
+            [cmd_bin, "eval", "git stash pop", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        duration_ms = int((datetime.datetime.now() - start_time).total_seconds() * 1000)
+
+        # Expected: returncode == 2, decision == deny, rule_id == block-git-stash-mutations
+        if proc.returncode != 2:
+            error_msg = f"Unexpected returncode {proc.returncode} (expected 2). stdout: {proc.stdout[:200]} stderr: {proc.stderr[:200]}"
+        else:
+            try:
+                data = json.loads(proc.stdout)
+                if data.get("decision") == "deny" and any(
+                    r.get("rule_id") == "block-git-stash-mutations" for r in data.get("reasons", [])
+                ):
+                    is_healthy = True
+                else:
+                    error_msg = f"Invalid decision payload: decision={data.get('decision')}"
+            except Exception as e:
+                error_msg = f"Failed to parse engine output as JSON: {e}. stdout: {proc.stdout[:200]}"
+    except subprocess.TimeoutExpired:
+        error_msg = "Engine evaluation timed out after 10s"
+        duration_ms = 10000
+    except Exception as e:
+        error_msg = f"Failed to execute engine: {e}"
+        duration_ms = 0
+
+    if is_healthy:
+        # Record healthy status
+        try:
+            with open(STATUS_FILE, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "status": "healthy",
+                        "last_check": now_iso,
+                        "duration_ms": duration_ms,
+                        "engine_bin": cmd_bin,
+                    },
+                    f,
+                    indent=2,
+                )
+        except Exception:
+            pass
+
+        # Trigger log cap check
+        if os.path.exists(LOG_CAP_SCRIPT):
+            try:
+                subprocess.run(["python3", LOG_CAP_SCRIPT], timeout=10, capture_output=True)
+            except Exception:
+                pass
+        return 0
+
+    # Failure detected
+    alert_text = (
+        f"🚨 *[opa-gate health]* Engine health check failed on `bhd-main2`!\n"
+        f"• *Check*: `pi-opa-net eval \"git stash pop\" --json`\n"
+        f"• *Error*: {error_msg}\n"
+        f"• *State*: Gate is failing open — unverified commands may bypass.\n"
+        f"• *Timestamp*: {now_iso}\n"
+        f"• *Action*: Check engine binaries in `/opt/opa-gate/engine`."
+    )
+    sys.stderr.write(f"[opa-gate-health] FAILURE: {error_msg}\n")
+
+    # 1. Log failure record to audit.jsonl
+    try:
+        failure_record = json.dumps(
+            {
+                "schema_version": "1.0",
+                "decision": "health_failure",
+                "error": error_msg,
+                "timestamp": now_iso,
+            }
+        )
+        with open(AUDIT_LOG, "a", encoding="utf-8") as f:
+            f.write(failure_record + "\n")
+    except Exception:
+        pass
+
+    # 2. Syslog notification
+    try:
+        subprocess.run(["logger", "-p", "user.err", "-t", "opa-gate-health", f"Engine check FAILED: {error_msg}"])
+    except Exception:
+        pass
+
+    # 3. Slack alert
+    send_slack_alert(alert_text)
+
+    # 4. Write failing status
+    try:
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "status": "unhealthy",
+                    "last_check": now_iso,
+                    "error": error_msg,
+                },
+                f,
+                indent=2,
+            )
+    except Exception:
+        pass
+
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(run_health_check())

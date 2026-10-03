@@ -1,0 +1,17 @@
+[Unit]
+Description=opa-gate health check — verify engine safety evaluation
+Documentation=https://github.com/buihongduc132/opa-net
+
+[Service]
+Type=oneshot
+User=bhd
+Group=bhd
+Environment=HOME=/home/bhd
+Environment=PATH=/opt/opa-gate/bin:/usr/local/bin:/usr/bin:/bin:/home/bhd/.local/bin
+WorkingDirectory=/home/bhd/Documents/Projects/bhd/opa-net/wt/universal-shell-gate
+ExecStart=/usr/bin/python3 /opt/opa-gate/scripts/opa-gate-health
+TimeoutStartSec=30
+StandardOutput=journal
+StandardError=journal
+Nice=19
+CPUSchedulingPolicy=idle
