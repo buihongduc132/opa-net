@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Ensure populate runs with standard system PATH, never through gate shims
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
 TARGET_DIR="/opt/opa-gate/bin"
 SHIM_SRC=""
 STAGING_DIR=""
@@ -149,11 +152,11 @@ if [ "$ATOMIC" -eq 1 ] && [ "$DRY_RUN" -eq 0 ]; then
   # Atomic rename using mv -T if supported, else rename
   BACKUP_DIR="${TARGET_DIR}.old.$$"
   if [ -d "$TARGET_DIR" ]; then
-    mv "$TARGET_DIR" "$BACKUP_DIR"
-    mv "$WORK_DIR" "$TARGET_DIR"
-    rm -rf "$BACKUP_DIR"
+    /bin/mv "$TARGET_DIR" "$BACKUP_DIR"
+    /bin/mv "$WORK_DIR" "$TARGET_DIR"
+    /bin/rm -rf "$BACKUP_DIR"
   else
-    mv "$WORK_DIR" "$TARGET_DIR"
+    /bin/mv "$WORK_DIR" "$TARGET_DIR"
   fi
 fi
 

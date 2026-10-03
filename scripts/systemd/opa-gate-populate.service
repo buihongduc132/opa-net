@@ -1,0 +1,17 @@
+[Unit]
+Description=Universal Shell Gate Population
+Documentation=https://github.com/buihongduc132/opa-net
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/opa-gate/scripts/opa-gate-populate --shim-src /opt/opa-gate/scripts/.opa-gate-shim
+CPUSchedulingPolicy=idle
+Nice=19
+TimeoutSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

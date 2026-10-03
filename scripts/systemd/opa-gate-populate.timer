@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Universal Shell Gate Population Timer
+Documentation=https://github.com/buihongduc132/opa-net
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1800
+
+[Install]
+WantedBy=timers.target
