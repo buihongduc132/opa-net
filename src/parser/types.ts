@@ -1,3 +1,8 @@
+export interface GitConfigEntry {
+  readonly key: string;
+  readonly value: string;
+}
+
 /**
  * Normalized command structure — the "decide half" input to OPA.
  * Matches the `EvaluatedInput` schema (minus `raw` which is added at output).
@@ -15,6 +20,8 @@ export interface ParsedCommand {
   readonly parseConfidence: ParseConfidence;
   /** Captured -C <path> from git global options (LD8). Used for cwd propagation to signal collection. */
   readonly gitCwd?: string;
+  /** Captured -c <key>=<value> configs from git global options (V2). */
+  readonly gitConfigs?: readonly GitConfigEntry[];
 }
 
 export type ParseConfidence = 'full' | 'partial' | 'regex-only' | 'failed';

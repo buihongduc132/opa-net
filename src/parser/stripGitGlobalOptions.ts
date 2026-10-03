@@ -40,12 +40,20 @@ const GLOBAL_OPTIONS_NO_VALUE = new Set([
   '--info-path',
 ]);
 
+import type { GitConfigEntry } from './types.ts';
+
 /** Result of stripping git global options. */
 export interface StripResult {
   /** The args with global options removed. */
   readonly args: string[];
   /** The captured -C <path> value, if present (for cwd propagation). */
   readonly cPath?: string;
+  /** The captured --work-tree <path> value, if present. */
+  readonly workTree?: string;
+  /** The captured --git-dir <path> value, if present. */
+  readonly gitDir?: string;
+  /** Captured -c and --config-env settings. */
+  readonly configs: readonly GitConfigEntry[];
 }
 
 /**
@@ -57,34 +65,54 @@ export function stripGitGlobalOptions(args: readonly string[]): string[] {
 }
 
 /**
- * Strip git global options AND capture -C <path> for cwd propagation.
- * This is the full version that returns metadata about what was stripped.
- *
- * Globals are stripped ONLY from the leading run before the first
- * subcommand (non-option token). A `-C` AFTER the subcommand is a subcommand
- * flag (e.g. `git switch -C <branch>` = force-create), NOT a global — stripping
- * it here would let the force operation bypass policy (cubic P1 on
- * src/parser/ShellQuoteParser.ts:78).
+ * Strip git global options AND capture -C <path>, --work-tree, --git-dir,
+ * and -c / --config-env entries.
  */
 export function stripWithMeta(args: readonly string[]): StripResult {
   const result: string[] = [];
+  const configs: GitConfigEntry[] = [];
   let cPath: string | undefined;
+  let workTree: string | undefined;
+  let gitDir: string | undefined;
   let i = 0;
+
+  function parseConfigString(str: string): void {
+    const eq = str.indexOf('=');
+    if (eq !== -1) {
+      configs.push({ key: str.slice(0, eq), value: str.slice(eq + 1) });
+    }
+  }
+
+  function parseConfigEnvString(str: string): void {
+    const eq = str.indexOf('=');
+    if (eq !== -1) {
+      const key = str.slice(0, eq);
+      const envName = str.slice(eq + 1);
+      const value = process.env[envName] ?? '';
+      configs.push({ key, value });
+    }
+  }
 
   while (i < args.length) {
     const arg = args[i];
 
-    // =-joined form: --git-dir=/path, -C=/path
+    // =-joined form: --git-dir=/path, -C=/path, --work-tree=/path, -c=name=val
     const eqIdx = arg.indexOf('=');
     if (eqIdx !== -1) {
       const key = arg.slice(0, eqIdx);
       const value = arg.slice(eqIdx + 1);
       if (GLOBAL_OPTIONS_WITH_VALUE.has(key)) {
         if (key === '-C') cPath = value;
+        else if (key === '--work-tree') workTree = value;
+        else if (key === '--git-dir') gitDir = value;
+        else if (key === '-c') parseConfigString(value);
+        else if (key === '--config-env') parseConfigEnvString(value);
         i++;
         continue;
       }
       if (key.startsWith('-c')) {
+        // e.g. -cname=val (first = was after name)
+        parseConfigString(arg.slice(2));
         i++;
         continue;
       }
@@ -93,10 +121,15 @@ export function stripWithMeta(args: readonly string[]): StripResult {
       break;
     }
 
-    // Space-separated form: -C /path
+    // Space-separated form: -C /path, --work-tree /path, -c name=val
     if (GLOBAL_OPTIONS_WITH_VALUE.has(arg)) {
-      if (arg === '-C' && i + 1 < args.length) {
-        cPath = args[i + 1];
+      const nextVal = i + 1 < args.length ? args[i + 1] : undefined;
+      if (nextVal !== undefined) {
+        if (arg === '-C') cPath = nextVal;
+        else if (arg === '--work-tree') workTree = nextVal;
+        else if (arg === '--git-dir') gitDir = nextVal;
+        else if (arg === '-c') parseConfigString(nextVal);
+        else if (arg === '--config-env') parseConfigEnvString(nextVal);
       }
       i += 2;
       continue;
@@ -115,6 +148,7 @@ export function stripWithMeta(args: readonly string[]): StripResult {
       continue;
     }
     if (arg.startsWith('-c') && arg.length > 2) {
+      parseConfigString(arg.slice(2));
       i++;
       continue;
     }
@@ -124,5 +158,5 @@ export function stripWithMeta(args: readonly string[]): StripResult {
     break;
   }
 
-  return { args: result, cPath };
+  return { args: result, cPath, workTree, gitDir, configs };
 }

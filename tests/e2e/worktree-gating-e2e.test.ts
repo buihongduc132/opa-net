@@ -50,7 +50,10 @@ const auditDir = resolve(ROOT, '.pi-opa-net/audit');
  * (pi-opa-net signals use PIOPANET_* — no rule reads GIT_GUARD_*.)
  */
 function execSync(cmd: string, opts: { cwd: string; stdio?: 'ignore'; timeout?: number }): void {
-  execSyncRaw(cmd, { ...opts, env: { ...process.env, GIT_GUARD_DISABLE: '1' } });
+  execSyncRaw(cmd, {
+    ...opts,
+    env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin', GIT_GUARD_DISABLE: '1' },
+  });
 }
 
 /** Fixture: a real git repo on branch `main` with branches dev, staging, main. */
@@ -309,6 +312,11 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     const reasons = JSON.stringify(result.record?.reasons ?? '');
     expect(reasons).not.toContain('branch-target-allowlist');
 
+    // V3: git branch -m in >=3d linked worktree is allowed
+    const resultBranchM = runCli('git branch -m my-wip-renamed', subWt);
+    expect(resultBranchM.exitCode).toBe(0);
+    expect(resultBranchM.record?.decision).toBe('allow');
+
     // Clean up the worktree.
     try {
       execSync(`git worktree remove ${subWt} --force`, { cwd: fixtureRepo, stdio: 'ignore' });
@@ -384,6 +392,24 @@ describe.skipIf(!opaAvailable)('E2E: worktree/branch gating (LD1-LD8)', () => {
     expect(result.exitCode).toBe(2);
     expect(result.record?.decision).toBe('deny');
     expect(JSON.stringify(result.record?.reasons ?? '')).toContain('update-ref');
+  });
+
+  it('(r) V3: git branch -m in protected worktree → DENY', () => {
+    const result = runCli('git branch -m feature-evil', fixtureRepo);
+    expect(result.exitCode).toBe(2);
+    expect(result.record?.decision).toBe('deny');
+    expect(JSON.stringify(result.record?.reasons ?? '')).toContain(
+      'block-git-branch-move-protected',
+    );
+  });
+
+  it('(r2) V3: git branch --move in protected worktree → DENY', () => {
+    const result = runCli('git branch --move feature-evil', fixtureRepo);
+    expect(result.exitCode).toBe(2);
+    expect(result.record?.decision).toBe('deny');
+    expect(JSON.stringify(result.record?.reasons ?? '')).toContain(
+      'block-git-branch-move-protected',
+    );
   });
 
   it('(j) git -C <other-repo> worktree add → cwd propagated to signals (LD8)', () => {

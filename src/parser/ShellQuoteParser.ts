@@ -74,10 +74,12 @@ function classify(strings: string[], raw: string, hasMeta: boolean): ParsedComma
   // Also capture -C <path> for cwd propagation to signal collection.
   let effectiveRest = rest;
   let gitCwd: string | undefined;
+  let gitConfigs: readonly import('./types.ts').GitConfigEntry[] | undefined;
   if (program === 'git') {
     const stripped = stripWithMeta(rest);
     effectiveRest = stripped.args;
-    gitCwd = stripped.cPath;
+    gitCwd = stripped.cPath ?? stripped.workTree ?? stripped.gitDir;
+    gitConfigs = stripped.configs;
   }
 
   // Subcommand-style programs: tokens[1] is the subcommand (unless it's a flag).
@@ -93,12 +95,21 @@ function classify(strings: string[], raw: string, hasMeta: boolean): ParsedComma
       subcommand: sub.toLowerCase(),
       args,
       parseConfidence: confidence,
-      gitCwd,
+      ...(gitCwd ? { gitCwd } : {}),
+      ...(gitConfigs && gitConfigs.length > 0 ? { gitConfigs } : {}),
     };
   }
 
   // Non-subcommand programs: everything after program is an arg.
-  return { raw, program, subcommand: '', args: effectiveRest, parseConfidence: confidence, gitCwd };
+  return {
+    raw,
+    program,
+    subcommand: '',
+    args: effectiveRest,
+    parseConfidence: confidence,
+    ...(gitCwd ? { gitCwd } : {}),
+    ...(gitConfigs && gitConfigs.length > 0 ? { gitConfigs } : {}),
+  };
 }
 
 /** shell-quote emits objects ({op, ...}) for redirects/pipelines/subshells. */

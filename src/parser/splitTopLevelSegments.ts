@@ -37,9 +37,14 @@ function tryUnwrapDashC(segment: string): string | null {
   return null;
 }
 
-/** Split raw on top-level control operators, preserving each segment's raw text. */
-function splitRawTopLevel(raw: string): string[] {
-  const segments: string[] = [];
+export interface CommandSegment {
+  readonly segment: string;
+  readonly op?: string;
+}
+
+/** Split raw on top-level control operators, preserving each segment's raw text and trailing operator. */
+function splitRawTopLevelWithOps(raw: string): CommandSegment[] {
+  const segments: CommandSegment[] = [];
   let cur = '';
   let quote: '"' | "'" | null = null;
   let i = 0;
@@ -72,21 +77,21 @@ function splitRawTopLevel(raw: string): string[] {
     const two = raw.slice(i, i + 2);
     if (TWO_CHAR_OPS.has(two)) {
       const s = cur.trim();
-      if (s) segments.push(s);
+      if (s) segments.push({ segment: s, op: two });
       cur = '';
       i += 2;
       continue;
     }
     if (ch === ';') {
       const s = cur.trim();
-      if (s) segments.push(s);
+      if (s) segments.push({ segment: s, op: ';' });
       cur = '';
       i++;
       continue;
     }
     if (ch === '|') {
       const s = cur.trim();
-      if (s) segments.push(s);
+      if (s) segments.push({ segment: s, op: '|' });
       cur = '';
       i++;
       continue;
@@ -97,7 +102,7 @@ function splitRawTopLevel(raw: string): string[] {
       const next = raw[i + 1];
       if (next !== '>' && next !== '<') {
         const s = cur.trim();
-        if (s) segments.push(s);
+        if (s) segments.push({ segment: s, op: '&' });
         cur = '';
         i++;
         continue;
@@ -112,20 +117,32 @@ function splitRawTopLevel(raw: string): string[] {
   }
 
   const s = cur.trim();
-  if (s) segments.push(s);
-  return segments.length ? segments : [raw.trim()];
+  if (s) segments.push({ segment: s });
+  return segments.length ? segments : [{ segment: raw.trim() }];
+}
+
+export function splitTopLevelSegmentsWithOps(raw: string): CommandSegment[] {
+  const top = splitRawTopLevelWithOps(raw);
+  const out: CommandSegment[] = [];
+  for (const item of top) {
+    const inner = tryUnwrapDashC(item.segment);
+    if (inner !== null) {
+      const subs = splitTopLevelSegmentsWithOps(inner);
+      for (let j = 0; j < subs.length; j++) {
+        const sub = subs[j];
+        if (j === subs.length - 1 && item.op) {
+          out.push({ segment: sub.segment, op: item.op });
+        } else {
+          out.push(sub);
+        }
+      }
+    } else {
+      out.push(item);
+    }
+  }
+  return out.length ? out : [{ segment: raw.trim() }];
 }
 
 export function splitTopLevelSegments(raw: string): string[] {
-  const top = splitRawTopLevel(raw);
-  const out: string[] = [];
-  for (const segment of top) {
-    const inner = tryUnwrapDashC(segment);
-    if (inner !== null) {
-      for (const sub of splitTopLevelSegments(inner)) out.push(sub);
-    } else {
-      out.push(segment);
-    }
-  }
-  return out.length ? out : [raw.trim()];
+  return splitTopLevelSegmentsWithOps(raw).map((s) => s.segment);
 }

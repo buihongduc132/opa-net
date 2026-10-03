@@ -77,7 +77,13 @@ describe('classifyCheckoutTarget', () => {
     const { mkdtempSync, rmSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
     const { tmpdir } = require('node:os') as typeof import('node:os');
     const { join } = require('node:path') as typeof import('node:path');
-    const { execSync } = require('node:child_process') as typeof import('node:child_process');
+    const cp = require('node:child_process') as typeof import('node:child_process');
+    const execSyncRaw = cp.execSync;
+    const execSync = (cmd: string, opts: any) =>
+      execSyncRaw(cmd, {
+        ...opts,
+        env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin', GIT_GUARD_DISABLE: '1' },
+      });
 
     // Create a real git fixture
     const repoDir = mkdtempSync(join(tmpdir(), 'checkout-target-test-'));

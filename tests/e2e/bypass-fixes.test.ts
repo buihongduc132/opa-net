@@ -5,7 +5,11 @@ import { resolve } from 'node:path';
 const ROOT = resolve(import.meta.dir, '../../');
 const BIN = resolve(ROOT, 'bin/pi-opa-net.js');
 
-function runPiOpaNet(command: string, cwd = ROOT, env?: Record<string, string>): { exitCode: number; stdout: string; record: any } {
+function runPiOpaNet(
+  command: string,
+  cwd = ROOT,
+  env?: Record<string, string>,
+): { exitCode: number; stdout: string; record: any } {
   const fullEnv = { ...process.env, ...env };
   try {
     const stdout = execFileSync('bun', ['run', BIN, 'eval', command, '--json'], {
@@ -88,7 +92,9 @@ describe('Bypass Fixes E2E (V1–V6 + OT)', () => {
     });
 
     it('denies piped printf into git update-ref --stdin in protected worktree', () => {
-      const res = runPiOpaNet("printf 'update refs/heads/main 1234567890abcdef1234567890abcdef12345678\\n' | git update-ref --stdin");
+      const res = runPiOpaNet(
+        "printf 'update refs/heads/main 1234567890abcdef1234567890abcdef12345678\\n' | git update-ref --stdin",
+      );
       expect(res.exitCode).toBe(2);
       expect(res.record.decision).toBe('deny');
       expect(res.record.reasons[0].rule_id).toBe('block-git-update-ref-stdin');
@@ -130,9 +136,42 @@ describe('Bypass Fixes E2E (V1–V6 + OT)', () => {
     });
 
     it('allows git reflog expire when repo is not protected', () => {
-      const res = runPiOpaNet('git reflog expire --expire=now --all', ROOT, { PIOPANET_PROTECT_DAYS: '0' });
+      const res = runPiOpaNet('git reflog expire --expire=now --all', ROOT, {
+        PIOPANET_PROTECT_DAYS: '0',
+      });
       expect(res.exitCode).toBe(0);
       expect(res.record.decision).toBe('allow');
+    });
+  });
+
+  describe('V4: track cwd across compound cd / pushd / popd / globals', () => {
+    it('denies cd into protected repo && git checkout feature-evil from outside', () => {
+      const res = runPiOpaNet(`cd ${ROOT} && git checkout feature-evil`, '/tmp');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.signals?.repo?.protected).toBe(true);
+      expect(res.record.reasons[0].message).toContain('branch-target-allowlist');
+    });
+
+    it('denies cd to non-existent dir && git checkout (fail-closed)', () => {
+      const res = runPiOpaNet('cd /nonexistent/evil/dir && git checkout feature-evil', '/tmp');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.source).toBe('fail-closed');
+      expect(res.record.reasons[0].message).toContain('Cannot resolve directory for cd');
+    });
+
+    it('tracks pushd and popd cwd changes across segments', () => {
+      const res = runPiOpaNet(`pushd ${ROOT} && popd && git checkout feature-evil`, '/tmp');
+      expect(res.exitCode).toBe(0);
+      expect(res.record.decision).toBe('allow');
+    });
+
+    it('propagates --work-tree as effective cwd for signals', () => {
+      const res = runPiOpaNet(`git --work-tree=${ROOT} checkout feature-evil`, '/tmp');
+      expect(res.exitCode).toBe(2);
+      expect(res.record.decision).toBe('deny');
+      expect(res.record.signals?.repo?.protected).toBe(true);
     });
   });
 });

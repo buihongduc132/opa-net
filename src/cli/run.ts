@@ -9,9 +9,10 @@ import {
 import { DecisionBuilder, type DecisionOutput } from '../output/DecisionBuilder.ts';
 import { OutputFormatter, validateDecision } from '../output/OutputFormatter.ts';
 import { classifyCheckoutTarget } from '../parser/checkoutTarget.ts';
+import { resolveCdChange } from '../parser/cwdTracker.ts';
 import type { CommandParser, ParsedCommand } from '../parser/index.ts';
 import { CommandParserCoordinator, programBasename } from '../parser/index.ts';
-import { splitTopLevelSegments } from '../parser/splitTopLevelSegments.ts';
+import { splitTopLevelSegmentsWithOps } from '../parser/splitTopLevelSegments.ts';
 import { RULES, RuleRegistry } from '../rules/index.ts';
 import {
   EnvSignals,
@@ -145,9 +146,9 @@ async function evaluatePossiblyCompound(
   // quote-aware tokenization (naive `;` split would cut through a quoted
   // `bash -c 'echo; find …'` payload). `bash -c` payloads are recursively
   // split, and trailing commands after `&&`/`||`/`|` are preserved.
-  const segments = splitTopLevelSegments(raw);
+  const items = splitTopLevelSegmentsWithOps(raw);
 
-  if (segments.length <= 1) {
+  if (items.length <= 1) {
     // Single (non-compound) command: parse the ORIGINAL raw so shell-quote
     // expansions stay intact (`$HOME` → empty arg, `/*` → glob token are the
     // raw-token deny signals in the rego). Rejoining the segment would drop
@@ -160,10 +161,60 @@ async function evaluatePossiblyCompound(
     return buildDecision(parsed, engineDecision, { config, builder, unlockKeys, hasKeys, signals });
   }
 
-  // Compound path: evaluate each segment (which may itself be bash -c), deny wins.
+  // Compound path: evaluate each segment with cwd tracking (V4).
+  let currentCwd = baseCwd;
+  let lastCwd = baseCwd;
+  const cwdStack: string[] = [];
   let denyOutput: DecisionOutput | undefined;
-  for (const segment of segments) {
-    const output = await evaluatePossiblyCompound(segment, deps);
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx];
+    const segment = item.segment;
+    const op = item.op;
+
+    // Check if segment is a cd / pushd / popd
+    const cdRes = resolveCdChange(segment, currentCwd, cwdStack, lastCwd);
+    if (cdRes.type === 'success') {
+      lastCwd = cdRes.lastCwd;
+      currentCwd = cdRes.newCwd;
+      // Also evaluate cd segment itself in case a rule denies it
+      const output = await evaluatePossiblyCompound(segment, { ...deps, baseCwd: currentCwd });
+      if (output.decision === 'deny' && output.action === 'block') {
+        denyOutput = output;
+        break;
+      }
+      continue;
+    }
+
+    if (cdRes.type === 'unresolvable') {
+      if (op === '&&') {
+        const parsed = parser.parse(segment);
+        const engineDecision: EngineDecision = {
+          decision: 'deny',
+          source: 'fail-closed',
+          reasons: [
+            {
+              message: `Cannot resolve directory for cd '${cdRes.target}': ${cdRes.reason}`,
+            },
+          ],
+          opaVersion: '',
+          durationMs: 0,
+        };
+        denyOutput = buildDecision(parsed, engineDecision, {
+          config,
+          builder,
+          unlockKeys,
+          hasKeys,
+          signals: undefined,
+        });
+        break;
+      }
+      // If op is || or ;, fall back to baseCwd for subsequent command
+      currentCwd = baseCwd;
+      continue;
+    }
+
+    const output = await evaluatePossiblyCompound(segment, { ...deps, baseCwd: currentCwd });
     if (output.decision === 'deny' && output.action === 'block') {
       denyOutput = output;
       break; // first deny wins
@@ -175,12 +226,12 @@ async function evaluatePossiblyCompound(
   }
 
   // All segments allowed — return an allow decision based on the first segment.
-  const firstParsed = parser.parse(segments[0] ?? '');
+  const firstParsed = parser.parse(items[0]?.segment ?? '');
   const firstEffectiveCwd = firstParsed.gitCwd ?? baseCwd;
   const firstSignals = collectSignals(
     firstParsed,
     firstEffectiveCwd,
-    segments[0] ?? '',
+    items[0]?.segment ?? '',
     config,
     collectors,
   );
@@ -314,7 +365,6 @@ function collectSignals(
   const ctx: SignalContext = { cwd, raw, parsed };
   const signals = collectAll(collectors, ctx);
 
-  // Enrich git signals with target_branch classification (LD7).
   if (parsed.subcommand === 'checkout' || parsed.subcommand === 'switch') {
     const target = classifyCheckoutTarget(parsed.args, cwd);
     (signals as Record<string, Record<string, unknown>>).git = {
