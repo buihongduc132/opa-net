@@ -870,6 +870,15 @@ deny[msg] if {
     msg := sprintf("branch-target-allowlist: worktree add with non-allowed branch '%s'. Allowed: %v", [target, allowed_branches])
 }
 
+# Deny git branch -m / --move in protected worktree (V3).
+deny[msg] if {
+    input.program == "git"
+    input.subcommand == "branch"
+    repo_available_protected
+    has_any_arg(input.args, ["-m", "--move"])
+    msg := "Renaming branches via git branch -m/--move is blocked in protected worktrees."
+}
+
 # Non-flag args in input.args
 symbolic_ref_non_flags := [arg | arg := input.args[_]; not startswith(arg, "-")]
 

@@ -91,6 +91,11 @@ export const RULES: readonly RuleMeta[] = [
     message: 'Forced branch moves or renames can rewrite refs and disrupt shared work.',
   },
   {
+    ruleId: 'block-git-branch-move-protected',
+    family: 'git',
+    message: 'Renaming branches via git branch -m/--move is blocked in protected worktrees.',
+  },
+  {
     ruleId: 'block-git-rebase',
     family: 'git',
     message: 'Rebase rewrites commit history and is blocked in this environment.',
