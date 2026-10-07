@@ -9,9 +9,14 @@ set -o pipefail 2>/dev/null || true
 NAME="${0##*/}"
 
 # 1. Boot safety / recursion guard
+self_real=$(readlink -f "$0" 2>/dev/null || true)
 if [ "${OPA_GATE_INTERNAL:-0}" = "1" ]; then
   for dir in /usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
     if [ "$dir" != "/opt/opa-gate/bin" ] && [ -x "$dir/$NAME" ]; then
+      cand_real=$(readlink -f "$dir/$NAME" 2>/dev/null || true)
+      if [ -n "$cand_real" ] && [ -n "$self_real" ] && [ "$cand_real" = "$self_real" ]; then
+        continue
+      fi
       exec "$dir/$NAME" "$@"
     fi
   done
@@ -27,6 +32,10 @@ export OPA_GATE_INTERNAL=1
 REAL_BIN=""
 for dir in /usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
   if [ -x "$dir/$NAME" ]; then
+    cand_real=$(readlink -f "$dir/$NAME" 2>/dev/null || true)
+    if [ -n "$cand_real" ] && [ -n "$self_real" ] && [ "$cand_real" = "$self_real" ]; then
+      continue
+    fi
     REAL_BIN="$dir/$NAME"
     break
   fi

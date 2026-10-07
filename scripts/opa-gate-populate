@@ -110,7 +110,12 @@ fi
 
 # Scan source directories: order determines precedence (/usr/local/bin > /usr/bin > /usr/local/sbin > /usr/sbin)
 SOURCE_DIRS=("/usr/local/bin" "/usr/bin" "/usr/local/sbin" "/usr/sbin")
-SKIPPED_BINARIES=("sudo" "pi-opa-net" "opa" "bun" ".opa-gate-shim")
+SKIPPED_BINARIES=(
+  "sudo" "pi-opa-net" "opa" "bun" ".opa-gate-shim"
+  "ldconfig" "ldconfig.real" "ldd" "getconf" "getent"
+  "iconv" "iconvconfig" "locale" "locale-check" "locale-gen"
+  "localectl" "localedef" "pldd" "tzselect" "zdump" "zic"
+)
 
 is_skipped() {
   local b="$1"
